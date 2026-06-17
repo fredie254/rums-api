@@ -18,10 +18,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup PHP 8.1
+      - name: Setup PHP 8.5
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.5'
           extensions: mbstring, pdo_mysql, openssl, curl, json
           coverage: none
 
@@ -61,10 +61,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup PHP 8.1
+      - name: Setup PHP 8.5
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.5'
           extensions: mbstring, pdo_mysql, openssl, curl, json
           coverage: none
 
@@ -123,10 +123,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup PHP 8.1
+      - name: Setup PHP 8.5
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.5'
           coverage: none
 
       - name: Check .env not committed
@@ -217,7 +217,7 @@ jobs:
               mysql -u $DB_USER -p$DB_PASS $DB_NAME < $migration 2>/dev/null || true
             done
             echo "Reloading services..."
-            sudo systemctl reload php8.1-fpm
+            sudo systemctl reload php8.5-fpm
             sudo systemctl reload nginx
             echo "✔ Deployment complete: $(date)"
 
