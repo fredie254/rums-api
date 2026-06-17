@@ -1,0 +1,230 @@
+name: RUMS API CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — Lint
+  # ════════════════════════════════════════════════════════════════════════
+  lint:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, pdo_mysql, openssl, curl, json
+          coverage: none
+
+      - name: Check PHP syntax (all files)
+        run: |
+          find . -name "*.php" \
+            -not -path "./vendor/*" \
+            -not -path "./.git/*" \
+            | xargs -I{} php -l {}
+          echo "✔ PHP syntax OK"
+
+  # ════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — Test
+  # ════════════════════════════════════════════════════════════════════════
+  test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: rums_test
+          MYSQL_USER: rums_app
+          MYSQL_PASSWORD: testpassword
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -prootpassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, pdo_mysql, openssl, curl, json
+          coverage: none
+
+      - name: Wait for MySQL
+        run: |
+          until mysqladmin ping -h 127.0.0.1 -u root -prootpassword --silent; do
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
+          echo "✔ MySQL ready"
+
+      - name: Import database schema
+        run: |
+          mysql -h 127.0.0.1 -u root -prootpassword rums_test < schema.sql
+          echo "✔ Schema imported"
+
+      - name: Create test .env
+        run: |
+          cat > .env << 'EOF'
+          APP_NAME=RUMS
+          APP_ENV=testing
+          APP_DEBUG=true
+          APP_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_NAME=rums_test
+          DB_USER=rums_app
+          DB_PASS=testpassword
+          MPESA_ENV=sandbox
+          AT_ENV=sandbox
+          EOF
+          echo "✔ Test .env created"
+
+      - name: Run API health check
+        run: |
+          php -S 127.0.0.1:8080 -t . index.php &
+          sleep 2
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/)
+          echo "API response status: $STATUS"
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
+            echo "✔ API is responding"
+          else
+            echo "✗ Unexpected API status: $STATUS"
+            exit 1
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — Security Scan
+  # ════════════════════════════════════════════════════════════════════════
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+
+      - name: Check .env not committed
+        run: |
+          if git ls-files | grep -q "^\.env$"; then
+            echo "ERROR: .env file is tracked by git!"
+            exit 1
+          fi
+          echo "✔ No .env file committed"
+
+      - name: Check sensitive files excluded
+        run: |
+          SENSITIVE_FILES="fix-admin.php reset-password.php seed.php"
+          for FILE in $SENSITIVE_FILES; do
+            if git ls-files | grep -q "^$FILE$"; then
+              echo "WARNING: Sensitive file $FILE is tracked by git"
+            else
+              echo "✔ $FILE excluded"
+            fi
+          done
+
+      - name: Scan for hardcoded credentials
+        run: |
+          # Look for hardcoded passwords or keys (basic check)
+          FOUND=$(grep -rn --include="*.php" \
+            -E "(password|secret|api_key|passkey)\s*=\s*['\"][^'\"]{8,}" \
+            --exclude-dir=vendor \
+            --exclude-dir=migrations . || true)
+          if [ -n "$FOUND" ]; then
+            echo "WARNING: Possible hardcoded credentials:"
+            echo "$FOUND"
+          else
+            echo "✔ No hardcoded credentials detected"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — Deploy (main branch only)
+  # ════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: security
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via rsync over SSH
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: >
+            -avzr
+            --delete
+            --exclude='.git'
+            --exclude='.github'
+            --exclude='.env'
+            --exclude='.env.example'
+            --exclude='*.log'
+            --exclude='storage/documents/'
+            --exclude='storage/exports/'
+            --exclude='fix-admin.php'
+            --exclude='reset-password.php'
+            --exclude='seed.php'
+          path: ./
+          remote_path: ${{ secrets.DEPLOY_PATH }}
+          remote_host: ${{ secrets.SERVER_HOST }}
+          remote_user: ${{ secrets.SERVER_USER }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          remote_port: ${{ secrets.SERVER_PORT || 22 }}
+
+      - name: Run database migrations
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "Running migrations..."
+            for migration in migrations/*.sql; do
+              echo "Applying $migration..."
+              mysql -u $DB_USER -p$DB_PASS $DB_NAME < $migration 2>/dev/null || true
+            done
+            echo "Reloading services..."
+            sudo systemctl reload php8.1-fpm
+            sudo systemctl reload nginx
+            echo "✔ Deployment complete: $(date)"
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "✔ RUMS API deployed successfully"
+          echo "Commit : ${{ github.sha }}"
+          echo "Author : ${{ github.actor }}"
+          echo "Message: ${{ github.event.head_commit.message }}"
