@@ -1,0 +1,47 @@
+Options -Indexes -MultiViews
+ServerSignature Off
+
+# ── JSON error responses for Apache-level errors ──────────────
+ErrorDocument 400 /errors/error.php
+ErrorDocument 403 /errors/error.php
+ErrorDocument 404 /errors/error.php
+ErrorDocument 405 /errors/error.php
+ErrorDocument 429 /errors/error.php
+ErrorDocument 500 /errors/error.php
+ErrorDocument 502 /errors/error.php
+ErrorDocument 503 /errors/error.php
+
+# ── Force HTTPS in production ──────────────────────────────────
+# Uncomment when SSL is installed:
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+RewriteEngine On
+
+# ── Block sensitive files ──────────────────────────────────────
+RewriteRule ^(\.env|\.git|composer\.(json|lock)|package\.json)$ - [F,L]
+RewriteRule \.(sql|log|sh|bat|md)$ - [F,L]
+RewriteRule ^(config|services|endpoints)/ - [F,L]
+
+# ── Pass Authorization header (Apache may strip it) ────────────
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# ── Route everything through the front controller ──────────────
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# ── Security headers ───────────────────────────────────────────
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options        "DENY"
+    Header always set X-XSS-Protection       "1; mode=block"
+    Header always set Referrer-Policy        "strict-origin-when-cross-origin"
+    Header unset Server
+    Header always unset X-Powered-By
+</IfModule>
+
+# ── Compression ────────────────────────────────────────────────
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json text/plain
+</IfModule>

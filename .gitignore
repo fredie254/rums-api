@@ -1,0 +1,37 @@
+# ── Environment & Secrets ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Dependencies ─────────────────────────────────────────────────────────────
+vendor/
+node_modules/
+
+# ── Logs & Cache ─────────────────────────────────────────────────────────────
+*.log
+logs/
+*.cache
+.php_cs.cache
+.php-cs-fixer.cache
+
+# ── Storage ──────────────────────────────────────────────────────────────────
+storage/documents/
+storage/exports/
+storage/logs/
+
+# ── OS Files ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / Editor ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Sensitive scripts (remove before prod) ───────────────────────────────────
+fix-admin.php
+reset-password.php
+seed.php

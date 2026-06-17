@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUMS API — Documentation</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #7c8399; --accent: #6c8efb;
+    --green: #34d399; --yellow: #fbbf24; --red: #f87171;
+    --blue: #60a5fa; --purple: #a78bfa; --orange: #fb923c;
+    --get: #34d399; --post: #60a5fa; --put: #fbbf24;
+    --patch: #fb923c; --delete: #f87171;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar { width: 260px; min-width: 260px; background: var(--surface); border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 0; }
+  .content { flex: 1; padding: 40px 48px; max-width: 900px; }
+
+  /* Sidebar */
+  .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .sidebar-logo h1 { font-size: 16px; font-weight: 700; color: var(--accent); }
+  .sidebar-logo p { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sidebar-group { margin-bottom: 8px; }
+  .sidebar-group-label { padding: 4px 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .sidebar a { display: flex; align-items: center; gap: 8px; padding: 6px 20px; color: var(--muted); font-size: 13px; transition: all .15s; }
+  .sidebar a:hover { color: var(--text); background: rgba(255,255,255,.04); text-decoration: none; }
+  .sidebar a .method-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; min-width: 38px; text-align: center; }
+
+  /* Sections */
+  section { margin-bottom: 56px; scroll-margin-top: 24px; }
+  h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 16px; font-weight: 600; margin: 32px 0 12px; }
+  p { color: var(--muted); margin-bottom: 12px; }
+
+  /* Endpoint card */
+  .endpoint { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .endpoint-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; user-select: none; }
+  .endpoint-header:hover { background: rgba(255,255,255,.02); }
+  .method { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px; min-width: 52px; text-align: center; letter-spacing: .04em; }
+  .GET    { background: rgba(52,211,153,.15); color: var(--get); }
+  .POST   { background: rgba(96,165,250,.15); color: var(--post); }
+  .PUT    { background: rgba(251,191,36,.15);  color: var(--put); }
+  .PATCH  { background: rgba(251,146,60,.15);  color: var(--patch); }
+  .DELETE { background: rgba(248,113,113,.15); color: var(--delete); }
+  .endpoint-path { font-family: 'Courier New', monospace; font-size: 14px; font-weight: 600; }
+  .endpoint-desc { font-size: 13px; color: var(--muted); margin-left: auto; }
+  .auth-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(251,191,36,.15); color: var(--yellow); border: 1px solid rgba(251,191,36,.3); white-space: nowrap; }
+  .pub-badge  { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.3); white-space: nowrap; }
+
+  .endpoint-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+
+  /* Code blocks */
+  pre { background: #0a0c12; border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; margin: 10px 0; }
+  code { font-family: 'Courier New', monospace; font-size: 13px; color: var(--text); }
+  .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; background: rgba(255,255,255,.04); color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: top; }
+  td code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .req { color: var(--red); font-size: 10px; }
+  .opt { color: var(--muted); font-size: 10px; }
+
+  /* Alert */
+  .alert { border-radius: 6px; padding: 12px 16px; margin: 16px 0; font-size: 13px; border-left: 3px solid; }
+  .alert-info  { background: rgba(96,165,250,.08);  border-color: var(--blue);   color: #93c5fd; }
+  .alert-warn  { background: rgba(251,191,36,.08);  border-color: var(--yellow); color: #fde68a; }
+
+  /* Base URL chip */
+  .base-url { display: inline-block; background: rgba(108,142,251,.1); border: 1px solid rgba(108,142,251,.3); border-radius: 6px; padding: 6px 14px; font-family: monospace; font-size: 13px; color: var(--accent); margin-bottom: 16px; }
+
+  /* Role table */
+  .role-chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.3); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <h1>RUMS API</h1>
+    <p>v1.0.0 · REST · JSON</p>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">General</div>
+    <a href="#overview">Overview</a>
+    <a href="#auth-section">Authentication</a>
+    <a href="#errors">Errors &amp; Codes</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Auth</div>
+    <a href="#ep-login"><span class="method-badge POST">POST</span>auth/login</a>
+    <a href="#ep-logout"><span class="method-badge POST">POST</span>auth/logout</a>
+    <a href="#ep-me"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>auth/me</a>
+    <a href="#ep-token-issue"><span class="method-badge POST">POST</span>auth/token</a>
+    <a href="#ep-token-revoke"><span class="method-badge DELETE">DELETE</span>auth/token/{id}</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Properties</div>
+    <a href="#ep-props-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>properties</a>
+    <a href="#ep-props-create"><span class="method-badge POST">POST</span>properties</a>
+    <a href="#ep-props-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>properties/{id}</a>
+    <a href="#ep-props-update"><span class="method-badge PATCH">PATCH</span>properties/{id}</a>
+    <a href="#ep-props-delete"><span class="method-badge DELETE">DELETE</span>properties/{id}</a>
+    <a href="#ep-props-put"><span class="method-badge PUT">PUT</span>properties/{id}</a>
+    <a href="#ep-props-units"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>properties/{id}/units</a>
+    <a href="#ep-props-stats"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>properties/{id}/stats</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Units</div>
+    <a href="#ep-units-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>units</a>
+    <a href="#ep-units-create"><span class="method-badge POST">POST</span>units</a>
+    <a href="#ep-units-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>units/{id}</a>
+    <a href="#ep-units-update"><span class="method-badge PATCH">PATCH</span>units/{id}</a>
+    <a href="#ep-units-status"><span class="method-badge PATCH">PATCH</span>units/{id}/status</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Tenants</div>
+    <a href="#ep-tenants-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants</a>
+    <a href="#ep-tenants-create"><span class="method-badge POST">POST</span>tenants</a>
+    <a href="#ep-tenants-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants/{id}</a>
+    <a href="#ep-tenants-update"><span class="method-badge PATCH">PATCH</span>tenants/{id}</a>
+    <a href="#ep-tenants-statement"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants/{id}/statement</a>
+    <a href="#ep-tenants-invoices"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants/{id}/invoices</a>
+    <a href="#ep-tenants-payments"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants/{id}/payments</a>
+    <a href="#ep-tenants-maint"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tenants/{id}/maintenance</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Leases</div>
+    <a href="#ep-leases-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>leases</a>
+    <a href="#ep-leases-create"><span class="method-badge POST">POST</span>leases</a>
+    <a href="#ep-leases-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>leases/{id}</a>
+    <a href="#ep-leases-terminate"><span class="method-badge POST">POST</span>leases/{id}/terminate</a>
+    <a href="#ep-leases-expiring"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>leases/expiring</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Payments</div>
+    <a href="#ep-payments-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>payments</a>
+    <a href="#ep-payments-create"><span class="method-badge POST">POST</span>payments</a>
+    <a href="#ep-payments-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>payments/{id}</a>
+    <a href="#ep-payments-summary"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>payments/summary</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Invoices</div>
+    <a href="#ep-invoices-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>invoices</a>
+    <a href="#ep-invoices-create"><span class="method-badge POST">POST</span>invoices</a>
+    <a href="#ep-invoices-bulk"><span class="method-badge POST">POST</span>invoices/bulk</a>
+    <a href="#ep-invoices-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>invoices/{id}</a>
+    <a href="#ep-invoices-update"><span class="method-badge PATCH">PATCH</span>invoices/{id}</a>
+    <a href="#ep-invoices-void"><span class="method-badge POST">POST</span>invoices/{id}/void</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Maintenance</div>
+    <a href="#ep-maint-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>maintenance</a>
+    <a href="#ep-maint-create"><span class="method-badge POST">POST</span>maintenance</a>
+    <a href="#ep-maint-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>maintenance/{id}</a>
+    <a href="#ep-maint-update"><span class="method-badge PATCH">PATCH</span>maintenance/{id}</a>
+    <a href="#ep-maint-summary"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>maintenance/summary</a>
+    <a href="#ep-maint-assign"><span class="method-badge POST">POST</span>maintenance/{id}/assign</a>
+    <a href="#ep-maint-start"><span class="method-badge POST">POST</span>maintenance/{id}/start</a>
+    <a href="#ep-maint-complete"><span class="method-badge POST">POST</span>maintenance/{id}/complete</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Reports</div>
+    <a href="#ep-report-financial"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>reports/financial</a>
+    <a href="#ep-report-occupancy"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>reports/occupancy</a>
+    <a href="#ep-report-rent"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>reports/rent-collection</a>
+    <a href="#ep-report-maintenance"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>reports/maintenance</a>
+    <a href="#ep-report-dashboard"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>reports/dashboard</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Users</div>
+    <a href="#ep-users-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>users</a>
+    <a href="#ep-users-create"><span class="method-badge POST">POST</span>users</a>
+    <a href="#ep-users-get"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>users/{id}</a>
+    <a href="#ep-users-update"><span class="method-badge PATCH">PATCH</span>users/{id}</a>
+    <a href="#ep-users-status"><span class="method-badge PATCH">PATCH</span>users/{id}/status</a>
+    <a href="#ep-users-tokens"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>users/{id}/tokens</a>
+    <a href="#ep-tokens-list"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>tokens</a>
+    <a href="#ep-tokens-revoke"><span class="method-badge DELETE">DELETE</span>tokens/{id}</a>
+  </div>
+
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">System</div>
+    <a href="#ep-health"><span class="method-badge" style="background:rgba(52,211,153,.15);color:#34d399">GET</span>health</a>
+  </div>
+</nav>
+
+<!-- ── Content ─────────────────────────────────────────────── -->
+<main class="content">
+
+<!-- Overview -->
+<section id="overview">
+  <h2>RUMS REST API</h2>
+  <p>Rental Unit Management System — standalone JSON REST API. All responses are JSON. All protected endpoints require a Bearer token.</p>
+  <div class="base-url">https://api.rums.ultimatesolutions.co.ke/api/v1</div>
+
+  <h3>Request Format</h3>
+  <p>Send <code>Content-Type: application/json</code> with a JSON body for POST/PUT/PATCH requests.</p>
+
+  <h3>Response Envelope</h3>
+  <pre><code>{
+  "success": true | false,
+  "data":    { ... } | [ ... ],   // on success
+  "meta":    { "total": 0, "per_page": 20, "current_page": 1, "total_pages": 1 },
+  "message": "Human-readable message",
+  "errors":  [ ... ],             // on validation failure
+  "_ms":     12.4                 // response time in milliseconds
+}</code></pre>
+
+  <h3>Roles &amp; Scopes</h3>
+  <table>
+    <tr><th>Role</th><th>Default Scopes</th></tr>
+    <tr><td><span class="role-chip">admin</span></td><td>All access</td></tr>
+    <tr><td><span class="role-chip">manager</span></td><td>read/write: properties, units, tenants, leases, payments, invoices, maintenance, reports</td></tr>
+    <tr><td><span class="role-chip">accountant</span></td><td>read: all · write: payments, invoices</td></tr>
+    <tr><td><span class="role-chip">landlord</span></td><td>read: properties, units, leases, payments, invoices, reports</td></tr>
+    <tr><td><span class="role-chip">maintenance</span></td><td>read/write: maintenance · read: units</td></tr>
+    <tr><td><span class="role-chip">auditor</span></td><td>read: all (no write)</td></tr>
+    <tr><td><span class="role-chip">tenant</span></td><td>read: leases, payments, invoices · write: maintenance</td></tr>
+  </table>
+</section>
+
+<!-- Authentication -->
+<section id="auth-section">
+  <h2>Authentication</h2>
+  <p>All protected endpoints require a Bearer token in the <code>Authorization</code> header.</p>
+  <pre><code>Authorization: Bearer &lt;your-token&gt;</code></pre>
+  <div class="alert alert-info">GET requests also accept <code>?api_token=&lt;token&gt;</code> as a convenience parameter.</div>
+
+  <!-- Login -->
+  <div class="endpoint" id="ep-login">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/auth/login</span>
+      <span class="pub-badge">Public</span>
+      <span class="endpoint-desc">Exchange credentials for a token</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Request Body</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>email</code></td><td>string</td><td><span class="req">required</span></td><td>User email address</td></tr>
+        <tr><td><code>password</code></td><td>string</td><td><span class="req">required</span></td><td>User password</td></tr>
+      </table>
+      <div class="label">Example Request</div>
+      <pre><code>POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@rums.co.ke",
+  "password": "Admin@2024!"
+}</code></pre>
+      <div class="label">Example Response — 200</div>
+      <pre><code>{
+  "success": true,
+  "data": {
+    "token": "a3f9c2...",
+    "token_type": "Bearer",
+    "expires_in": 31536000,
+    "user": { "id": 1, "name": "System Admin", "email": "admin@rums.co.ke", "role": "admin" }
+  },
+  "message": "Login successful."
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- Logout -->
+  <div class="endpoint" id="ep-logout">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/auth/logout</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Revoke current token</span>
+    </div>
+    <div class="endpoint-body">
+      <p>No body required. Revokes the token used in the Authorization header.</p>
+      <div class="label">Example Response — 200</div>
+      <pre><code>{ "success": true, "message": "Logged out." }</code></pre>
+    </div>
+  </div>
+
+  <!-- Me -->
+  <div class="endpoint" id="ep-me">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/auth/me</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Current user profile</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Example Response — 200</div>
+      <pre><code>{
+  "success": true,
+  "data": {
+    "user":  { "id": 1, "name": "Admin", "email": "admin@rums.co.ke", "role": "admin", "status": "active", "last_login": "2024-06-01T08:00:00+03:00" },
+    "token": { "id": 5, "name": "Login Token", "scopes": "admin", "last_used": "2024-06-01T09:00:00", "expires_at": "2025-06-01T08:00:00" }
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- Issue named token -->
+  <div class="endpoint" id="ep-token-issue">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/auth/token</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Issue a named API token</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>name</code></td><td>string</td><td><span class="opt">optional</span></td><td>Token label (default: "API Token")</td></tr>
+        <tr><td><code>scopes</code></td><td>string</td><td><span class="req">required</span></td><td>Comma-separated scopes e.g. <code>read:properties,write:payments</code></td></tr>
+        <tr><td><code>expires_days</code></td><td>int</td><td><span class="opt">optional</span></td><td>TTL in days (0 = never expires)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Revoke token by id -->
+  <div class="endpoint" id="ep-token-revoke">
+    <div class="endpoint-header">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/auth/token/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Revoke a token by ID (own tokens; admin can revoke any)</span>
+    </div>
+  </div>
+</section>
+
+<!-- Properties -->
+<section id="properties">
+  <h2>Properties</h2>
+  <p>Manage rental properties. Requires <code>read:properties</code> / <code>write:properties</code> scope.</p>
+
+  <div class="endpoint" id="ep-props-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/properties</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List all properties</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Type</th><th>Description</th></tr>
+        <tr><td><code>search</code></td><td>string</td><td>Filter by name or address</td></tr>
+        <tr><td><code>status</code></td><td>string</td><td><code>active</code> | <code>inactive</code></td></tr>
+        <tr><td><code>landlord_id</code></td><td>int</td><td>Filter by landlord</td></tr>
+        <tr><td><code>page</code></td><td>int</td><td>Page number (default: 1)</td></tr>
+        <tr><td><code>per_page</code></td><td>int</td><td>Results per page (default: 20, max: 200)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/properties</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create a property</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Body Fields</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>name</code></td><td>string</td><td><span class="req">required</span></td><td>Property name</td></tr>
+        <tr><td><code>property_type</code></td><td>string</td><td><span class="req">required</span></td><td>e.g. <code>apartment</code>, <code>house</code>, <code>commercial</code></td></tr>
+        <tr><td><code>address_county</code></td><td>string</td><td><span class="req">required</span></td><td>County</td></tr>
+        <tr><td><code>address_line1</code></td><td>string</td><td><span class="opt">optional</span></td><td>Street address</td></tr>
+        <tr><td><code>address_city</code></td><td>string</td><td><span class="opt">optional</span></td><td>City / town</td></tr>
+        <tr><td><code>total_units</code></td><td>int</td><td><span class="opt">optional</span></td><td>Expected unit count</td></tr>
+        <tr><td><code>landlord_id</code></td><td>int</td><td><span class="opt">optional</span></td><td>Linked landlord ID</td></tr>
+        <tr><td><code>manager_id</code></td><td>int</td><td><span class="opt">optional</span></td><td>Linked manager user ID</td></tr>
+        <tr><td><code>description</code></td><td>string</td><td><span class="opt">optional</span></td><td>Free text</td></tr>
+        <tr><td><code>amenities</code></td><td>string</td><td><span class="opt">optional</span></td><td>Free text</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/properties/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Single property with units + stats</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/properties/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update property fields</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Send only the fields you want to change. Same fields as POST (except required fields become optional).</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-delete">
+    <div class="endpoint-header">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/properties/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Soft-delete a property</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="alert alert-warn">Fails if any units are still occupied.</div>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-put">
+    <div class="endpoint-header">
+      <span class="method PUT">PUT</span>
+      <span class="endpoint-path">/properties/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Full update of a property</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Same fields as PATCH. Use PUT to signal a full replacement of editable fields.</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-units">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/properties/{id}/units</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">All units for a property with current tenant</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-props-stats">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/properties/{id}/stats</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Occupancy and income stats for a property</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Example Response</div>
+      <pre><code>{
+  "total_units": 12, "occupied": 10, "available": 2, "maintenance": 0,
+  "potential_monthly_revenue": 120000,
+  "year_income": 980000
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Units -->
+<section id="units">
+  <h2>Units</h2>
+  <p>Manage individual rental units within properties. Requires <code>read:units</code> / <code>write:units</code> scope.</p>
+
+  <div class="endpoint" id="ep-units-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/units</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List units</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>property_id</code></td><td>Filter by property</td></tr>
+        <tr><td><code>status</code></td><td><code>available</code> | <code>occupied</code> | <code>maintenance</code> | <code>inactive</code></td></tr>
+        <tr><td><code>type</code></td><td>Filter by unit type</td></tr>
+        <tr><td><code>page</code> / <code>per_page</code></td><td>Pagination</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-units-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/units</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create a unit</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Body Fields</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>property_id</code></td><td>int</td><td><span class="req">required</span></td><td>Parent property</td></tr>
+        <tr><td><code>unit_number</code></td><td>string</td><td><span class="req">required</span></td><td>e.g. <code>A1</code>, <code>101</code></td></tr>
+        <tr><td><code>unit_type</code></td><td>string</td><td><span class="req">required</span></td><td>e.g. <code>bedsitter</code>, <code>1br</code>, <code>2br</code></td></tr>
+        <tr><td><code>rent_amount</code></td><td>decimal</td><td><span class="req">required</span></td><td>Monthly rent in KES</td></tr>
+        <tr><td><code>deposit_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td>Security deposit</td></tr>
+        <tr><td><code>bedrooms</code></td><td>int</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>bathrooms</code></td><td>int</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>floor</code></td><td>int</td><td><span class="opt">optional</span></td><td>Floor number</td></tr>
+        <tr><td><code>size_sqft</code></td><td>decimal</td><td><span class="opt">optional</span></td><td>Size in sq ft</td></tr>
+        <tr><td><code>furnished</code></td><td>bool</td><td><span class="opt">optional</span></td><td>Default false</td></tr>
+        <tr><td><code>amenities</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-units-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/units/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Unit detail with current tenant + recent payments</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-units-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/units/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update unit fields</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-units-put">
+    <div class="endpoint-header">
+      <span class="method PUT">PUT</span>
+      <span class="endpoint-path">/units/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Full update of a unit</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Same fields as PATCH.</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-units-status">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/units/{id}/status</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Change unit status</span>
+    </div>
+    <div class="endpoint-body">
+      <pre><code>{ "status": "available" }  // available | occupied | maintenance | inactive</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Tenants -->
+<section id="tenants">
+  <h2>Tenants</h2>
+  <p>Requires <code>read:tenants</code> / <code>write:tenants</code> scope.</p>
+
+  <div class="endpoint" id="ep-tenants-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List tenants</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>search</code></td><td>Name, email, or phone</td></tr>
+        <tr><td><code>status</code></td><td><code>active</code> | <code>inactive</code> | <code>blacklisted</code></td></tr>
+        <tr><td><code>property_id</code></td><td>Filter by property</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/tenants</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create tenant</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Body Fields</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>first_name</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>last_name</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>email</code></td><td>string</td><td><span class="req">required</span></td><td>Must be unique</td></tr>
+        <tr><td><code>phone</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>id_number</code></td><td>string</td><td><span class="req">required</span></td><td>National ID / passport. Must be unique</td></tr>
+        <tr><td><code>id_type</code></td><td>string</td><td><span class="opt">optional</span></td><td>Default: <code>national_id</code></td></tr>
+        <tr><td><code>dob</code></td><td>date</td><td><span class="opt">optional</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>gender</code></td><td>string</td><td><span class="opt">optional</span></td><td><code>male</code> | <code>female</code> | <code>other</code></td></tr>
+        <tr><td><code>occupation</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>employer</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>monthly_income</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>emergency_contact_name</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>emergency_contact_phone</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Tenant detail with lease, payments, and balance</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/tenants/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update tenant fields</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-put">
+    <div class="endpoint-header">
+      <span class="method PUT">PUT</span>
+      <span class="endpoint-path">/tenants/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Full update of a tenant</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Same fields as PATCH.</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-statement">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants/{id}/statement</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Payment &amp; invoice statement</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>date_from</code></td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>date_to</code></td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-invoices">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants/{id}/invoices</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Latest 50 invoices for a tenant</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>status</code></td><td>Filter by invoice status</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-payments">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants/{id}/payments</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Latest 50 payments for a tenant</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tenants-maint">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tenants/{id}/maintenance</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Latest 30 maintenance requests for a tenant</span>
+    </div>
+  </div>
+</section>
+
+<!-- Leases -->
+<section id="leases">
+  <h2>Leases</h2>
+  <p>Requires <code>read:leases</code> / <code>write:leases</code> scope.</p>
+
+  <div class="endpoint" id="ep-leases-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/leases</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List leases</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>status</code></td><td><code>active</code> | <code>expired</code> | <code>terminated</code></td></tr>
+        <tr><td><code>property_id</code></td><td></td></tr>
+        <tr><td><code>tenant_id</code></td><td></td></tr>
+        <tr><td><code>unit_id</code></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-leases-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/leases</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create lease (marks unit as occupied)</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Body Fields</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>unit_id</code></td><td>int</td><td><span class="req">required</span></td><td>Must be available</td></tr>
+        <tr><td><code>tenant_id</code></td><td>int</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>start_date</code></td><td>date</td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>end_date</code></td><td>date</td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>monthly_rent</code></td><td>decimal</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>deposit_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>payment_day</code></td><td>int</td><td><span class="opt">optional</span></td><td>Day of month rent is due (default: 1)</td></tr>
+        <tr><td><code>grace_period_days</code></td><td>int</td><td><span class="opt">optional</span></td><td>Default: 5</td></tr>
+        <tr><td><code>penalty_rate</code></td><td>decimal</td><td><span class="opt">optional</span></td><td>Late payment penalty %</td></tr>
+        <tr><td><code>terms</code></td><td>string</td><td><span class="opt">optional</span></td><td>Lease terms</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-leases-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/leases/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Lease detail with invoices and payments</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-leases-put">
+    <div class="endpoint-header">
+      <span class="method PUT">PUT</span>
+      <span class="endpoint-path">/leases/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update lease terms</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Description</th></tr>
+        <tr><td><code>end_date</code></td><td>Extend or shorten the lease</td></tr>
+        <tr><td><code>monthly_rent</code></td><td>Revised rent amount</td></tr>
+        <tr><td><code>payment_day</code></td><td>Day of month rent is due</td></tr>
+        <tr><td><code>grace_period_days</code></td><td></td></tr>
+        <tr><td><code>penalty_rate</code></td><td>Late payment penalty %</td></tr>
+        <tr><td><code>terms</code></td><td>Lease terms text</td></tr>
+        <tr><td><code>notes</code></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-leases-expiring">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/leases/expiring</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Leases expiring within N days</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>days</code></td><td>Look-ahead window (default: 30)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-leases-terminate">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/leases/{id}/terminate</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Terminate an active lease (frees unit)</span>
+    </div>
+    <div class="endpoint-body">
+      <pre><code>{ "reason": "Tenant vacated early." }</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Payments -->
+<section id="payments">
+  <h2>Payments</h2>
+  <p>Requires <code>read:payments</code> / <code>write:payments</code> scope.</p>
+
+  <div class="endpoint" id="ep-payments-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/payments</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List payments</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Query Parameters</div>
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>tenant_id</code></td><td></td></tr>
+        <tr><td><code>lease_id</code></td><td></td></tr>
+        <tr><td><code>invoice_id</code></td><td></td></tr>
+        <tr><td><code>property_id</code></td><td></td></tr>
+        <tr><td><code>method</code></td><td><code>cash</code> | <code>mpesa</code> | <code>bank</code> | <code>cheque</code> | <code>other</code></td></tr>
+        <tr><td><code>date_from</code> / <code>date_to</code></td><td><code>YYYY-MM-DD</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-payments-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/payments</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Record a payment</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Body Fields</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>lease_id</code></td><td>int</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>amount</code></td><td>decimal</td><td><span class="req">required</span></td><td>Must be &gt; 0</td></tr>
+        <tr><td><code>payment_date</code></td><td>date</td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>payment_method</code></td><td>string</td><td><span class="req">required</span></td><td><code>cash</code> | <code>mpesa</code> | <code>bank</code> | <code>cheque</code> | <code>other</code></td></tr>
+        <tr><td><code>invoice_id</code></td><td>int</td><td><span class="opt">optional</span></td><td>Links payment to invoice; auto-reconciles invoice status</td></tr>
+        <tr><td><code>payment_type</code></td><td>string</td><td><span class="opt">optional</span></td><td>Default: <code>rent</code></td></tr>
+        <tr><td><code>mpesa_transaction_id</code></td><td>string</td><td><span class="opt">optional</span></td><td>For M-Pesa payments</td></tr>
+        <tr><td><code>cheque_number</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>notes</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-payments-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/payments/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Single payment detail</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-payments-summary">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/payments/summary</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Payment totals by method for a period</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>date_from</code></td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>date_to</code></td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>property_id</code></td><td><span class="opt">optional</span></td><td>Scope to one property</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Invoices -->
+<section id="invoices">
+  <h2>Invoices</h2>
+  <p>Requires <code>read:invoices</code> / <code>write:invoices</code> scope.</p>
+
+  <div class="endpoint" id="ep-invoices-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/invoices</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List invoices</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>status</code></td><td><code>unpaid</code> | <code>partial</code> | <code>paid</code> | <code>overdue</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>tenant_id</code></td><td></td></tr>
+        <tr><td><code>lease_id</code></td><td></td></tr>
+        <tr><td><code>property_id</code></td><td></td></tr>
+        <tr><td><code>date_from</code> / <code>date_to</code></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-invoices-bulk">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/invoices/bulk</span>
+      <span class="auth-badge">Bearer · admin / manager / accountant</span>
+      <span class="endpoint-desc">Generate monthly invoices for all active leases</span>
+    </div>
+    <div class="endpoint-body">
+      <pre><code>{
+  "year":        2024,
+  "month":       6,
+  "property_id": 1   // optional — omit for all properties
+}</code></pre>
+      <div class="alert alert-info">Idempotent — skips leases that already have an invoice for the given month.</div>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-invoices-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/invoices</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create a single invoice</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>lease_id</code></td><td>int</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>invoice_date</code></td><td>date</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>due_date</code></td><td>date</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>total_amount</code></td><td>decimal</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>rent_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>utility_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>penalty_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>discount_amount</code></td><td>decimal</td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-invoices-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/invoices/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Invoice detail with payment history</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-invoices-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/invoices/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update amounts or due date</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-invoices-void">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/invoices/{id}/void</span>
+      <span class="auth-badge">Bearer · admin / accountant</span>
+      <span class="endpoint-desc">Void an unpaid invoice</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="alert alert-warn">Only invoices with status <code>unpaid</code> can be voided.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Maintenance -->
+<section id="maintenance">
+  <h2>Maintenance</h2>
+  <p>Requires <code>read:maintenance</code> / <code>write:maintenance</code> scope.</p>
+
+  <div class="endpoint" id="ep-maint-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/maintenance</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">List work orders</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>status</code></td><td><code>open</code> | <code>in_progress</code> | <code>completed</code> | <code>resolved</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>priority</code></td><td><code>low</code> | <code>medium</code> | <code>high</code> | <code>urgent</code></td></tr>
+        <tr><td><code>property_id</code></td><td></td></tr>
+        <tr><td><code>unit_id</code></td><td></td></tr>
+        <tr><td><code>assigned_to</code></td><td>User ID of assignee</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/maintenance</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Create a work order</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>unit_id</code></td><td>int</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>issue_title</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>priority</code></td><td>string</td><td><span class="req">required</span></td><td><code>low</code> | <code>medium</code> | <code>high</code> | <code>urgent</code></td></tr>
+        <tr><td><code>description</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+        <tr><td><code>category</code></td><td>string</td><td><span class="opt">optional</span></td><td>e.g. <code>plumbing</code>, <code>electrical</code></td></tr>
+        <tr><td><code>assigned_to</code></td><td>int</td><td><span class="opt">optional</span></td><td>User ID</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/maintenance/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Work order detail</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/maintenance/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Update status, costs, assignee</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Description</th></tr>
+        <tr><td><code>status</code></td><td><code>open</code> → <code>in_progress</code> → <code>completed</code> / <code>resolved</code></td></tr>
+        <tr><td><code>assigned_to</code></td><td>User ID</td></tr>
+        <tr><td><code>materials_cost</code></td><td>decimal</td></tr>
+        <tr><td><code>labour_cost</code></td><td>decimal</td></tr>
+        <tr><td><code>contractor_name</code></td><td>string</td></tr>
+        <tr><td><code>contractor_phone</code></td><td>string</td></tr>
+        <tr><td><code>work_completed</code></td><td>datetime — auto-set when status → completed</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-put">
+    <div class="endpoint-header">
+      <span class="method PUT">PUT</span>
+      <span class="endpoint-path">/maintenance/{id}</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Full update of a work order</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Same fields as PATCH.</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-summary">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/maintenance/summary</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Maintenance KPI summary</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>property_id</code></td><td>Scope to one property (optional)</td></tr>
+      </table>
+      <div class="label">Example Response</div>
+      <pre><code>{
+  "total": 42, "open": 8, "in_progress": 5, "completed": 29,
+  "urgent": 2, "high": 3,
+  "total_cost": 185000,
+  "avg_days_to_resolve": 3.2
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-assign">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/maintenance/{id}/assign</span>
+      <span class="auth-badge">Bearer · admin / manager</span>
+      <span class="endpoint-desc">Assign work order to a staff member</span>
+    </div>
+    <div class="endpoint-body">
+      <pre><code>{ "assigned_to": 7 }  // user ID of maintenance staff</code></pre>
+      <div class="alert alert-info">Automatically sets status to <code>in_progress</code> if currently <code>open</code>.</div>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-start">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/maintenance/{id}/start</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Mark work order as in progress</span>
+    </div>
+    <div class="endpoint-body">
+      <p>No body required. Sets <code>status = in_progress</code> and stamps <code>work_started</code> if not already set.</p>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-maint-complete">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/maintenance/{id}/complete</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Mark work order as completed with cost data</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+        <tr><td><code>labour_hours</code></td><td>decimal</td><td>Hours worked</td></tr>
+        <tr><td><code>materials_cost</code></td><td>decimal</td><td>KES</td></tr>
+        <tr><td><code>labour_cost</code></td><td>decimal</td><td>KES</td></tr>
+        <tr><td><code>contractor_name</code></td><td>string</td><td>If outsourced</td></tr>
+        <tr><td><code>completion_notes</code></td><td>string</td><td>Appended to existing notes</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Reports -->
+<section id="reports">
+  <h2>Reports</h2>
+  <p>Requires <code>read:reports</code> scope.</p>
+
+  <div class="endpoint" id="ep-report-financial">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/reports/financial</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Income vs expenses summary</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>date_from</code></td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>date_to</code></td><td><span class="req">required</span></td><td><code>YYYY-MM-DD</code></td></tr>
+        <tr><td><code>property_id</code></td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-report-occupancy">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/reports/occupancy</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Occupancy rates by property and unit type</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>property_id</code></td><td>Scope to one property (optional)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-report-rent">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/reports/rent-collection</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Monthly rent collection report</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>year</code></td><td><span class="req">required</span></td><td>e.g. <code>2024</code></td></tr>
+        <tr><td><code>month</code></td><td><span class="req">required</span></td><td><code>1</code>–<code>12</code></td></tr>
+        <tr><td><code>property_id</code></td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-report-maintenance">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/reports/maintenance</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Maintenance summary by category and property</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>date_from</code></td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>date_to</code></td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>property_id</code></td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-report-dashboard">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/reports/dashboard</span>
+      <span class="auth-badge">Bearer</span>
+      <span class="endpoint-desc">Aggregated KPI dashboard</span>
+    </div>
+    <div class="endpoint-body">
+      <p>No parameters. Returns a snapshot of all key metrics.</p>
+      <div class="label">Example Response</div>
+      <pre><code>{
+  "units":               { "total": 80, "occupied": 68, "available": 10, "maintenance": 2 },
+  "revenue":             { "current_month": 340000, "current_year": 2980000 },
+  "accounts_receivable": { "count": 14, "balance": 87500 },
+  "maintenance":         { "open": 8, "urgent": 2 },
+  "leases":              { "active": 68, "expiring_30d": 5 },
+  "occupancy_rate":      85.0
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Users -->
+<section id="users">
+  <h2>Users</h2>
+  <p>Admin-only endpoints for managing system users.</p>
+
+  <div class="endpoint" id="ep-users-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/users</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">List users</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>search</code></td><td>Name or email</td></tr>
+        <tr><td><code>role</code></td><td>Filter by role</td></tr>
+        <tr><td><code>status</code></td><td><code>active</code> | <code>inactive</code> | <code>suspended</code> | <code>all</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-users-create">
+    <div class="endpoint-header">
+      <span class="method POST">POST</span>
+      <span class="endpoint-path">/users</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">Create a user</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr>
+        <tr><td><code>name</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
+        <tr><td><code>email</code></td><td>string</td><td><span class="req">required</span></td><td>Must be unique</td></tr>
+        <tr><td><code>role</code></td><td>string</td><td><span class="req">required</span></td><td><code>admin</code> | <code>manager</code> | <code>landlord</code> | <code>tenant</code> | <code>accountant</code> | <code>maintenance</code> | <code>auditor</code> | <code>security</code></td></tr>
+        <tr><td><code>password</code></td><td>string</td><td><span class="req">required</span></td><td>Min 8 characters recommended</td></tr>
+        <tr><td><code>phone</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-users-get">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/users/{id}</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">User profile</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-users-update">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/users/{id}</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">Update name, phone, role, or password</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-users-status">
+    <div class="endpoint-header">
+      <span class="method PATCH">PATCH</span>
+      <span class="endpoint-path">/users/{id}/status</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">Activate, suspend, or deactivate a user</span>
+    </div>
+    <div class="endpoint-body">
+      <pre><code>{ "status": "suspended" }  // active | inactive | suspended</code></pre>
+      <div class="alert alert-warn">Cannot modify your own status.</div>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-users-tokens">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/users/{id}/tokens</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">List all API tokens for a user</span>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tokens-list">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/tokens</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">List all tokens across all users</span>
+    </div>
+    <div class="endpoint-body">
+      <table>
+        <tr><th>Param</th><th>Description</th></tr>
+        <tr><td><code>page</code> / <code>per_page</code></td><td>Pagination (default per_page: 50)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep-tokens-revoke">
+    <div class="endpoint-header">
+      <span class="method DELETE">DELETE</span>
+      <span class="endpoint-path">/tokens/{id}</span>
+      <span class="auth-badge">Bearer · admin</span>
+      <span class="endpoint-desc">Revoke any token by ID</span>
+    </div>
+  </div>
+</section>
+
+<!-- Health -->
+<section id="system">
+  <h2>System</h2>
+
+  <div class="endpoint" id="ep-health">
+    <div class="endpoint-header">
+      <span class="method GET">GET</span>
+      <span class="endpoint-path">/health</span>
+      <span class="pub-badge">Public</span>
+      <span class="endpoint-desc">System health check</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="label">Example Response — 200</div>
+      <pre><code>{
+  "success": true,
+  "data": {
+    "status":    "ok",
+    "version":   "1.0.0",
+    "app":       "RUMS_API",
+    "env":       "production",
+    "timestamp": "2024-06-01T08:00:00+03:00",
+    "services":  { "database": "up" }
+  },
+  "message": "System healthy."
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Errors -->
+<section id="errors">
+  <h2>Error Codes</h2>
+  <table>
+    <tr><th>HTTP</th><th>Meaning</th></tr>
+    <tr><td>200</td><td>OK</td></tr>
+    <tr><td>201</td><td>Created</td></tr>
+    <tr><td>204</td><td>No Content (OPTIONS preflight)</td></tr>
+    <tr><td>400</td><td>Bad request — missing or invalid parameters</td></tr>
+    <tr><td>401</td><td>Unauthorized — missing or invalid Bearer token</td></tr>
+    <tr><td>403</td><td>Forbidden — insufficient role or scope</td></tr>
+    <tr><td>404</td><td>Not found — resource or endpoint doesn't exist</td></tr>
+    <tr><td>405</td><td>Method not allowed</td></tr>
+    <tr><td>409</td><td>Conflict — e.g. duplicate email</td></tr>
+    <tr><td>422</td><td>Unprocessable — validation failure with <code>errors</code> array</td></tr>
+    <tr><td>429</td><td>Too many requests — rate limit exceeded</td></tr>
+    <tr><td>503</td><td>Service unavailable — database unreachable</td></tr>
+  </table>
+</section>
+
+</main>
+</div>
+</body>
+</html>

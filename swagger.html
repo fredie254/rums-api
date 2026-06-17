@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUMS API — Swagger UI</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+<style>
+  body { margin: 0; background: #fafafa; }
+  .swagger-ui .topbar { background: #1a1d27; }
+  .swagger-ui .topbar .download-url-wrapper { display: none; }
+  .swagger-ui .info .title { color: #1a1d27; }
+</style>
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+const spec = {
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RUMS API",
+    "description": "Rental Unit Management System — standalone REST API.\n\nAll responses follow the envelope: `{ success, data?, meta?, message?, errors?, _ms }`\n\n**Authentication:** All protected endpoints require `Authorization: Bearer <token>`. GET endpoints also accept `?api_token=<token>`.",
+    "version": "1.0.0",
+    "contact": { "name": "Ultimate Solutions", "url": "https://ultimatesolutions.co.ke" }
+  },
+  "servers": [
+    { "url": "https://api.rums.ultimatesolutions.co.ke/api/v1", "description": "Production" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "hex" }
+    },
+    "schemas": {
+      "Success": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data":    { "type": "object" },
+          "message": { "type": "string" },
+          "_ms":     { "type": "number", "example": 12.4 }
+        }
+      },
+      "Paginated": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data":    { "type": "array", "items": {} },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total":        { "type": "integer" },
+              "per_page":     { "type": "integer" },
+              "current_page": { "type": "integer" },
+              "total_pages":  { "type": "integer" }
+            }
+          },
+          "_ms": { "type": "number" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors":  { "type": "array", "items": { "type": "string" } },
+          "_ms":     { "type": "number" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id":         { "type": "integer" },
+          "name":       { "type": "string" },
+          "email":      { "type": "string", "format": "email" },
+          "phone":      { "type": "string", "nullable": true },
+          "role":       { "type": "string", "enum": ["admin","manager","landlord","tenant","accountant","maintenance","auditor","security"] },
+          "status":     { "type": "string", "enum": ["active","inactive","suspended"] },
+          "last_login": { "type": "string", "format": "date-time", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Property": {
+        "type": "object",
+        "properties": {
+          "id":              { "type": "integer" },
+          "name":            { "type": "string" },
+          "property_type":   { "type": "string" },
+          "address_line1":   { "type": "string", "nullable": true },
+          "address_city":    { "type": "string", "nullable": true },
+          "address_county":  { "type": "string" },
+          "address_country": { "type": "string", "default": "Kenya" },
+          "total_units":     { "type": "integer" },
+          "landlord_id":     { "type": "integer", "nullable": true },
+          "manager_id":      { "type": "integer", "nullable": true },
+          "status":          { "type": "string", "enum": ["active","inactive","deleted"] },
+          "created_at":      { "type": "string", "format": "date-time" }
+        }
+      },
+      "Unit": {
+        "type": "object",
+        "properties": {
+          "id":             { "type": "integer" },
+          "property_id":    { "type": "integer" },
+          "unit_number":    { "type": "string" },
+          "unit_type":      { "type": "string" },
+          "floor":          { "type": "integer", "nullable": true },
+          "bedrooms":       { "type": "integer", "nullable": true },
+          "bathrooms":      { "type": "integer", "nullable": true },
+          "size_sqft":      { "type": "number", "nullable": true },
+          "rent_amount":    { "type": "number" },
+          "deposit_amount": { "type": "number" },
+          "furnished":      { "type": "boolean" },
+          "status":         { "type": "string", "enum": ["available","occupied","maintenance","inactive"] },
+          "created_at":     { "type": "string", "format": "date-time" }
+        }
+      },
+      "Tenant": {
+        "type": "object",
+        "properties": {
+          "id":         { "type": "integer" },
+          "first_name": { "type": "string" },
+          "last_name":  { "type": "string" },
+          "email":      { "type": "string", "format": "email" },
+          "phone":      { "type": "string" },
+          "id_number":  { "type": "string" },
+          "id_type":    { "type": "string", "default": "national_id" },
+          "gender":     { "type": "string", "enum": ["male","female","other"], "nullable": true },
+          "occupation": { "type": "string", "nullable": true },
+          "status":     { "type": "string", "enum": ["active","inactive","blacklisted"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Lease": {
+        "type": "object",
+        "properties": {
+          "id":            { "type": "integer" },
+          "lease_number":  { "type": "string" },
+          "unit_id":       { "type": "integer" },
+          "tenant_id":     { "type": "integer" },
+          "start_date":    { "type": "string", "format": "date" },
+          "end_date":      { "type": "string", "format": "date" },
+          "monthly_rent":  { "type": "number" },
+          "deposit_amount":{ "type": "number" },
+          "payment_day":   { "type": "integer" },
+          "status":        { "type": "string", "enum": ["active","expired","terminated"] },
+          "created_at":    { "type": "string", "format": "date-time" }
+        }
+      },
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "id":              { "type": "integer" },
+          "invoice_number":  { "type": "string" },
+          "lease_id":        { "type": "integer" },
+          "tenant_id":       { "type": "integer" },
+          "invoice_date":    { "type": "string", "format": "date" },
+          "due_date":        { "type": "string", "format": "date" },
+          "rent_amount":     { "type": "number" },
+          "utility_amount":  { "type": "number" },
+          "penalty_amount":  { "type": "number" },
+          "discount_amount": { "type": "number" },
+          "total_amount":    { "type": "number" },
+          "amount_paid":     { "type": "number" },
+          "status":          { "type": "string", "enum": ["unpaid","partial","paid","overdue","cancelled"] },
+          "created_at":      { "type": "string", "format": "date-time" }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "id":                   { "type": "integer" },
+          "payment_ref":          { "type": "string" },
+          "lease_id":             { "type": "integer" },
+          "invoice_id":           { "type": "integer", "nullable": true },
+          "tenant_id":            { "type": "integer" },
+          "amount":               { "type": "number" },
+          "payment_date":         { "type": "string", "format": "date" },
+          "payment_method":       { "type": "string", "enum": ["cash","mpesa","bank","cheque","other"] },
+          "payment_type":         { "type": "string", "default": "rent" },
+          "mpesa_transaction_id": { "type": "string", "nullable": true },
+          "status":               { "type": "string", "enum": ["completed","pending","reversed"] },
+          "created_at":           { "type": "string", "format": "date-time" }
+        }
+      },
+      "MaintenanceRequest": {
+        "type": "object",
+        "properties": {
+          "id":             { "type": "integer" },
+          "request_number": { "type": "string" },
+          "unit_id":        { "type": "integer" },
+          "tenant_id":      { "type": "integer", "nullable": true },
+          "issue_title":    { "type": "string" },
+          "description":    { "type": "string", "nullable": true },
+          "priority":       { "type": "string", "enum": ["low","medium","high","urgent"] },
+          "category":       { "type": "string", "nullable": true },
+          "status":         { "type": "string", "enum": ["open","in_progress","completed","resolved","cancelled"] },
+          "assigned_to":    { "type": "integer", "nullable": true },
+          "materials_cost": { "type": "number", "nullable": true },
+          "labour_cost":    { "type": "number", "nullable": true },
+          "created_at":     { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "parameters": {
+      "id":       { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+      "page":     { "name": "page",     "in": "query", "schema": { "type": "integer", "default": 1 } },
+      "per_page": { "name": "per_page", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } }
+    },
+    "responses": {
+      "401": { "description": "Unauthorized — missing or invalid Bearer token" },
+      "403": { "description": "Forbidden — insufficient role or scope" },
+      "404": { "description": "Not found" },
+      "422": { "description": "Validation error" }
+    }
+  },
+  "security": [{ "BearerAuth": [] }],
+  "tags": [
+    { "name": "Auth",        "description": "Authentication & token management" },
+    { "name": "Properties",  "description": "Property management" },
+    { "name": "Units",       "description": "Unit management" },
+    { "name": "Tenants",     "description": "Tenant management" },
+    { "name": "Leases",      "description": "Lease management" },
+    { "name": "Payments",    "description": "Payment recording" },
+    { "name": "Invoices",    "description": "Invoice management" },
+    { "name": "Maintenance", "description": "Maintenance work orders" },
+    { "name": "Reports",     "description": "Analytics & reports" },
+    { "name": "Users",       "description": "User & token administration (admin only)" },
+    { "name": "System",      "description": "Health & system info" }
+  ],
+  "paths": {
+
+    "/health": {
+      "get": {
+        "tags": ["System"], "summary": "Health check", "security": [],
+        "responses": {
+          "200": { "description": "System healthy",
+            "content": { "application/json": { "example": { "success": true, "data": { "status": "ok", "version": "1.0.0", "services": { "database": "up" } } } } } }
+        }
+      }
+    },
+
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"], "summary": "Login — exchange credentials for a token", "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["email","password"],
+            "properties": {
+              "email":    { "type": "string", "format": "email", "example": "admin@rums.co.ke" },
+              "password": { "type": "string", "example": "Admin@2024!" }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "Login successful", "content": { "application/json": { "example": {
+            "success": true, "data": {
+              "token": "a3f9c2d8...", "token_type": "Bearer", "expires_in": 31536000,
+              "user": { "id": 1, "name": "System Admin", "email": "admin@rums.co.ke", "role": "admin" }
+            }, "message": "Login successful."
+          }}}},
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"], "summary": "Logout — revoke current token",
+        "responses": {
+          "200": { "description": "Logged out", "content": { "application/json": { "example": { "success": true, "message": "Logged out." } } } }
+        }
+      }
+    },
+
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"], "summary": "Current user profile and token info",
+        "responses": {
+          "200": { "description": "Profile data" },
+          "401": { "$ref": "#/components/responses/401" }
+        }
+      }
+    },
+
+    "/auth/token": {
+      "post": {
+        "tags": ["Auth"], "summary": "Issue a named API token",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["scopes"],
+            "properties": {
+              "name":         { "type": "string", "example": "Mobile App Token" },
+              "scopes":       { "type": "string", "example": "read:properties,write:payments" },
+              "expires_days": { "type": "integer", "example": 365, "description": "0 = never expires" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Token issued" },
+          "401": { "$ref": "#/components/responses/401" }
+        }
+      }
+    },
+
+    "/auth/token/{id}": {
+      "delete": {
+        "tags": ["Auth"], "summary": "Revoke a token by ID",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": {
+          "200": { "description": "Token revoked" },
+          "403": { "description": "Can only revoke own tokens unless admin" }
+        }
+      }
+    },
+
+    "/properties": {
+      "get": {
+        "tags": ["Properties"], "summary": "List properties",
+        "parameters": [
+          { "name": "search",      "in": "query", "schema": { "type": "string" } },
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["active","inactive"] } },
+          { "name": "landlord_id", "in": "query", "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated property list" } }
+      },
+      "post": {
+        "tags": ["Properties"], "summary": "Create a property",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["name","property_type","address_county"],
+            "properties": {
+              "name":            { "type": "string", "example": "Sunset Apartments" },
+              "property_type":   { "type": "string", "example": "apartment" },
+              "address_county":  { "type": "string", "example": "Nairobi" },
+              "address_line1":   { "type": "string" },
+              "address_city":    { "type": "string", "example": "Westlands" },
+              "address_country": { "type": "string", "default": "Kenya" },
+              "total_units":     { "type": "integer", "example": 24 },
+              "year_built":      { "type": "integer", "example": 2018 },
+              "landlord_id":     { "type": "integer" },
+              "manager_id":      { "type": "integer" },
+              "description":     { "type": "string" },
+              "amenities":       { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Property created", "content": { "application/json": { "example": { "success": true, "data": { "id": 1 }, "message": "Property created." } } } },
+          "422": { "$ref": "#/components/responses/422" }
+        }
+      }
+    },
+
+    "/properties/{id}": {
+      "get": {
+        "tags": ["Properties"], "summary": "Get property with units and stats",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Property detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "put": {
+        "tags": ["Properties"], "summary": "Full update of a property",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Property" } } } },
+        "responses": { "200": { "description": "Updated" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "patch": {
+        "tags": ["Properties"], "summary": "Partial update of a property",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Property" } } } },
+        "responses": { "200": { "description": "Updated" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "delete": {
+        "tags": ["Properties"], "summary": "Soft-delete a property (fails if units occupied)",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Deleted" }, "409": { "description": "Has occupied units" } }
+      }
+    },
+
+    "/properties/{id}/units": {
+      "get": {
+        "tags": ["Properties"], "summary": "All units for a property with current tenant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Unit list" } }
+      }
+    },
+
+    "/properties/{id}/stats": {
+      "get": {
+        "tags": ["Properties"], "summary": "Occupancy and income stats",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Stats", "content": { "application/json": { "example": {
+          "success": true, "data": { "total_units": 12, "occupied": 10, "available": 2, "maintenance": 0, "potential_monthly_revenue": 120000, "year_income": 980000 }
+        }}}}}
+      }
+    },
+
+    "/units": {
+      "get": {
+        "tags": ["Units"], "summary": "List units",
+        "parameters": [
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["available","occupied","maintenance","inactive"] } },
+          { "name": "type",        "in": "query", "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated unit list" } }
+      },
+      "post": {
+        "tags": ["Units"], "summary": "Create a unit",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["property_id","unit_number","unit_type","rent_amount"],
+            "properties": {
+              "property_id":    { "type": "integer", "example": 1 },
+              "unit_number":    { "type": "string",  "example": "A1" },
+              "unit_type":      { "type": "string",  "example": "1br" },
+              "rent_amount":    { "type": "number",  "example": 15000 },
+              "deposit_amount": { "type": "number",  "example": 30000 },
+              "bedrooms":       { "type": "integer", "example": 1 },
+              "bathrooms":      { "type": "integer", "example": 1 },
+              "floor":          { "type": "integer", "example": 2 },
+              "size_sqft":      { "type": "number",  "example": 450 },
+              "furnished":      { "type": "boolean", "example": false },
+              "amenities":      { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "201": { "description": "Unit created" }, "409": { "description": "Unit number already exists in property" } }
+      }
+    },
+
+    "/units/{id}": {
+      "get": {
+        "tags": ["Units"], "summary": "Unit detail with current tenant and recent payments",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Unit detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "put": {
+        "tags": ["Units"], "summary": "Full update of a unit",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Unit" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "patch": {
+        "tags": ["Units"], "summary": "Partial update of a unit",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Unit" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/units/{id}/status": {
+      "patch": {
+        "tags": ["Units"], "summary": "Change unit status",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["status"],
+            "properties": { "status": { "type": "string", "enum": ["available","occupied","maintenance","inactive"] } }
+          }}}
+        },
+        "responses": { "200": { "description": "Status updated" } }
+      }
+    },
+
+    "/tenants": {
+      "get": {
+        "tags": ["Tenants"], "summary": "List tenants",
+        "parameters": [
+          { "name": "search",      "in": "query", "schema": { "type": "string" }, "description": "Name, email, or phone" },
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["active","inactive","blacklisted"] } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated tenant list" } }
+      },
+      "post": {
+        "tags": ["Tenants"], "summary": "Create a tenant",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["first_name","last_name","email","phone","id_number"],
+            "properties": {
+              "first_name":              { "type": "string", "example": "John" },
+              "last_name":               { "type": "string", "example": "Doe" },
+              "email":                   { "type": "string", "format": "email", "example": "john.doe@email.com" },
+              "phone":                   { "type": "string", "example": "+254700000000" },
+              "id_number":               { "type": "string", "example": "12345678" },
+              "id_type":                 { "type": "string", "default": "national_id" },
+              "dob":                     { "type": "string", "format": "date" },
+              "gender":                  { "type": "string", "enum": ["male","female","other"] },
+              "occupation":              { "type": "string" },
+              "employer":                { "type": "string" },
+              "monthly_income":          { "type": "number", "example": 80000 },
+              "emergency_contact_name":  { "type": "string" },
+              "emergency_contact_phone": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "201": { "description": "Tenant created" }, "422": { "$ref": "#/components/responses/422" } }
+      }
+    },
+
+    "/tenants/{id}": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Tenant detail with active lease, payment summary, and outstanding balance",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Tenant detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "put": {
+        "tags": ["Tenants"], "summary": "Full update of a tenant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "patch": {
+        "tags": ["Tenants"], "summary": "Partial update of a tenant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/tenants/{id}/statement": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Payment and invoice statement for a date range",
+        "parameters": [
+          { "$ref": "#/components/parameters/id" },
+          { "name": "date_from", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",   "in": "query", "required": true, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "Statement with payments, invoices, totals, and outstanding balance" } }
+      }
+    },
+
+    "/tenants/{id}/invoices": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Latest 50 invoices for a tenant",
+        "parameters": [
+          { "$ref": "#/components/parameters/id" },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["unpaid","partial","paid","overdue","cancelled"] } }
+        ],
+        "responses": { "200": { "description": "Invoice list" } }
+      }
+    },
+
+    "/tenants/{id}/payments": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Latest 50 payments for a tenant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Payment list" } }
+      }
+    },
+
+    "/tenants/{id}/maintenance": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Latest 30 maintenance requests for a tenant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Maintenance request list" } }
+      }
+    },
+
+    "/leases": {
+      "get": {
+        "tags": ["Leases"], "summary": "List leases",
+        "parameters": [
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["active","expired","terminated"], "default": "active" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "tenant_id",   "in": "query", "schema": { "type": "integer" } },
+          { "name": "unit_id",     "in": "query", "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated lease list" } }
+      },
+      "post": {
+        "tags": ["Leases"], "summary": "Create a lease (atomically marks unit as occupied)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["unit_id","tenant_id","start_date","end_date","monthly_rent"],
+            "properties": {
+              "unit_id":          { "type": "integer", "example": 1 },
+              "tenant_id":        { "type": "integer", "example": 3 },
+              "start_date":       { "type": "string",  "format": "date", "example": "2024-07-01" },
+              "end_date":         { "type": "string",  "format": "date", "example": "2025-06-30" },
+              "monthly_rent":     { "type": "number",  "example": 15000 },
+              "deposit_amount":   { "type": "number",  "example": 30000 },
+              "payment_day":      { "type": "integer", "default": 1 },
+              "grace_period_days":{ "type": "integer", "default": 5 },
+              "penalty_rate":     { "type": "number",  "default": 0, "description": "Late penalty %" },
+              "terms":            { "type": "string" },
+              "notes":            { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Lease created", "content": { "application/json": { "example": { "success": true, "data": { "id": 1, "lease_number": "LSE-2024-00001" } } } } },
+          "422": { "description": "Unit not available or date overlap" }
+        }
+      }
+    },
+
+    "/leases/expiring": {
+      "get": {
+        "tags": ["Leases"], "summary": "Leases expiring within N days",
+        "parameters": [
+          { "name": "days", "in": "query", "schema": { "type": "integer", "default": 30 } }
+        ],
+        "responses": { "200": { "description": "Expiring leases with days_remaining" } }
+      }
+    },
+
+    "/leases/{id}": {
+      "get": {
+        "tags": ["Leases"], "summary": "Lease detail with last 12 invoices and payments",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Lease detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "put": {
+        "tags": ["Leases"], "summary": "Update lease terms",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "end_date":          { "type": "string", "format": "date" },
+              "monthly_rent":      { "type": "number" },
+              "payment_day":       { "type": "integer" },
+              "grace_period_days": { "type": "integer" },
+              "penalty_rate":      { "type": "number" },
+              "terms":             { "type": "string" },
+              "notes":             { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/leases/{id}/terminate": {
+      "post": {
+        "tags": ["Leases"], "summary": "Terminate a lease (marks unit available) — admin/manager",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "reason": { "type": "string", "example": "Tenant vacated early." } }
+          }}}
+        },
+        "responses": { "200": { "description": "Lease terminated" }, "422": { "description": "Lease not active" } }
+      }
+    },
+
+    "/payments": {
+      "get": {
+        "tags": ["Payments"], "summary": "List payments",
+        "parameters": [
+          { "name": "tenant_id",   "in": "query", "schema": { "type": "integer" } },
+          { "name": "lease_id",    "in": "query", "schema": { "type": "integer" } },
+          { "name": "invoice_id",  "in": "query", "schema": { "type": "integer" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "method",      "in": "query", "schema": { "type": "string", "enum": ["cash","mpesa","bank","cheque","other"] } },
+          { "name": "date_from",   "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",     "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated payment list" } }
+      },
+      "post": {
+        "tags": ["Payments"], "summary": "Record a payment",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["lease_id","amount","payment_date","payment_method"],
+            "properties": {
+              "lease_id":             { "type": "integer", "example": 1 },
+              "amount":               { "type": "number",  "example": 15000 },
+              "payment_date":         { "type": "string",  "format": "date", "example": "2024-07-05" },
+              "payment_method":       { "type": "string",  "enum": ["cash","mpesa","bank","cheque","other"] },
+              "invoice_id":           { "type": "integer", "description": "Links & auto-reconciles invoice status" },
+              "payment_type":         { "type": "string",  "default": "rent" },
+              "mpesa_transaction_id": { "type": "string",  "example": "QHY4RX12PT" },
+              "cheque_number":        { "type": "string" },
+              "notes":                { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Payment recorded", "content": { "application/json": { "example": { "success": true, "data": { "id": 1, "payment_ref": "PAY-A1B2C3D4" } } } } }
+        }
+      }
+    },
+
+    "/payments/summary": {
+      "get": {
+        "tags": ["Payments"], "summary": "Aggregated totals by payment method for a period",
+        "parameters": [
+          { "name": "date_from",   "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",     "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Payment summary", "content": { "application/json": { "example": {
+          "success": true, "data": { "count": 42, "total": 630000, "mpesa_total": 480000, "bank_total": 120000, "cash_total": 30000 }
+        }}}}}
+      }
+    },
+
+    "/payments/{id}": {
+      "get": {
+        "tags": ["Payments"], "summary": "Single payment detail",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Payment detail" }, "404": { "$ref": "#/components/responses/404" } }
+      }
+    },
+
+    "/invoices": {
+      "get": {
+        "tags": ["Invoices"], "summary": "List invoices",
+        "parameters": [
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["unpaid","partial","paid","overdue","cancelled"] } },
+          { "name": "tenant_id",   "in": "query", "schema": { "type": "integer" } },
+          { "name": "lease_id",    "in": "query", "schema": { "type": "integer" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "date_from",   "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",     "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated invoice list" } }
+      },
+      "post": {
+        "tags": ["Invoices"], "summary": "Create a single invoice",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["lease_id","invoice_date","due_date","total_amount"],
+            "properties": {
+              "lease_id":       { "type": "integer", "example": 1 },
+              "invoice_date":   { "type": "string", "format": "date", "example": "2024-07-01" },
+              "due_date":       { "type": "string", "format": "date", "example": "2024-07-31" },
+              "total_amount":   { "type": "number", "example": 15000 },
+              "rent_amount":    { "type": "number" },
+              "utility_amount": { "type": "number" },
+              "penalty_amount": { "type": "number" },
+              "discount_amount":{ "type": "number" },
+              "notes":          { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "201": { "description": "Invoice created" } }
+      }
+    },
+
+    "/invoices/bulk": {
+      "post": {
+        "tags": ["Invoices"], "summary": "Bulk-generate monthly invoices for all active leases — admin/manager/accountant",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "year":        { "type": "integer", "example": 2024 },
+              "month":       { "type": "integer", "example": 7, "minimum": 1, "maximum": 12 },
+              "property_id": { "type": "integer", "description": "Omit to generate for all properties" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Idempotent — skips already-invoiced leases", "content": { "application/json": { "example": {
+          "success": true, "data": { "created": 18, "skipped": 2, "total_leases": 20 }
+        }}}}}
+      }
+    },
+
+    "/invoices/{id}": {
+      "get": {
+        "tags": ["Invoices"], "summary": "Invoice detail with payment history",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Invoice detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "patch": {
+        "tags": ["Invoices"], "summary": "Update invoice amounts or due date",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "due_date":       { "type": "string", "format": "date" },
+              "total_amount":   { "type": "number" },
+              "rent_amount":    { "type": "number" },
+              "utility_amount": { "type": "number" },
+              "penalty_amount": { "type": "number" },
+              "discount_amount":{ "type": "number" },
+              "notes":          { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/invoices/{id}/void": {
+      "post": {
+        "tags": ["Invoices"], "summary": "Void an unpaid invoice — admin/accountant",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Invoice voided" }, "403": { "description": "Only admin or accountant" } }
+      }
+    },
+
+    "/maintenance": {
+      "get": {
+        "tags": ["Maintenance"], "summary": "List work orders",
+        "parameters": [
+          { "name": "status",      "in": "query", "schema": { "type": "string", "enum": ["open","in_progress","completed","resolved","cancelled"] } },
+          { "name": "priority",    "in": "query", "schema": { "type": "string", "enum": ["low","medium","high","urgent"] } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "unit_id",     "in": "query", "schema": { "type": "integer" } },
+          { "name": "assigned_to", "in": "query", "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated work order list ordered by priority" } }
+      },
+      "post": {
+        "tags": ["Maintenance"], "summary": "Create a work order",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["unit_id","issue_title","priority"],
+            "properties": {
+              "unit_id":     { "type": "integer", "example": 5 },
+              "issue_title": { "type": "string",  "example": "Leaking tap in bathroom" },
+              "priority":    { "type": "string",  "enum": ["low","medium","high","urgent"] },
+              "description": { "type": "string" },
+              "category":    { "type": "string",  "example": "plumbing" },
+              "assigned_to": { "type": "integer", "description": "User ID of maintenance staff" },
+              "notes":       { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "201": { "description": "Work order created", "content": { "application/json": { "example": { "success": true, "data": { "id": 1, "request_number": "MNT-2024-00001" } } } } } }
+      }
+    },
+
+    "/maintenance/summary": {
+      "get": {
+        "tags": ["Maintenance"], "summary": "Maintenance KPI summary",
+        "parameters": [
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" }, "description": "Scope to one property" }
+        ],
+        "responses": { "200": { "description": "Summary stats", "content": { "application/json": { "example": {
+          "success": true, "data": { "total": 42, "open": 8, "in_progress": 5, "completed": 29, "urgent": 2, "total_cost": 185000, "avg_days_to_resolve": 3.2 }
+        }}}}}
+      }
+    },
+
+    "/maintenance/{id}": {
+      "get": {
+        "tags": ["Maintenance"], "summary": "Work order detail",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Work order detail" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "put": {
+        "tags": ["Maintenance"], "summary": "Full update of a work order",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaintenanceRequest" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "patch": {
+        "tags": ["Maintenance"], "summary": "Partial update of a work order",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "status":           { "type": "string", "enum": ["open","in_progress","completed","resolved","cancelled"] },
+              "priority":         { "type": "string", "enum": ["low","medium","high","urgent"] },
+              "assigned_to":      { "type": "integer" },
+              "materials_cost":   { "type": "number" },
+              "labour_cost":      { "type": "number" },
+              "contractor_name":  { "type": "string" },
+              "contractor_phone": { "type": "string" },
+              "notes":            { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/maintenance/{id}/assign": {
+      "post": {
+        "tags": ["Maintenance"], "summary": "Assign work order to staff — admin/manager",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["assigned_to"],
+            "properties": { "assigned_to": { "type": "integer", "example": 7, "description": "User ID of maintenance staff" } }
+          }}}
+        },
+        "responses": { "200": { "description": "Assigned. Auto-sets status to in_progress if currently open." } }
+      }
+    },
+
+    "/maintenance/{id}/start": {
+      "post": {
+        "tags": ["Maintenance"], "summary": "Mark work order as in progress",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Status set to in_progress, work_started stamped" } }
+      }
+    },
+
+    "/maintenance/{id}/complete": {
+      "post": {
+        "tags": ["Maintenance"], "summary": "Mark work order as completed with cost data",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "labour_hours":     { "type": "number", "example": 3.5 },
+              "materials_cost":   { "type": "number", "example": 2500 },
+              "labour_cost":      { "type": "number", "example": 1500 },
+              "contractor_name":  { "type": "string" },
+              "completion_notes": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Work order completed, work_completed stamped" } }
+      }
+    },
+
+    "/reports/financial": {
+      "get": {
+        "tags": ["Reports"], "summary": "Income vs expenses breakdown by month and category",
+        "parameters": [
+          { "name": "date_from",   "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",     "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Financial report with summary, income breakdown, expenses, and net" } }
+      }
+    },
+
+    "/reports/occupancy": {
+      "get": {
+        "tags": ["Reports"], "summary": "Occupancy rates by property and unit type",
+        "parameters": [
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Occupancy totals, by_property, by_type, and 12-month trend" } }
+      }
+    },
+
+    "/reports/rent-collection": {
+      "get": {
+        "tags": ["Reports"], "summary": "Monthly rent collection report with per-tenant rows",
+        "parameters": [
+          { "name": "year",        "in": "query", "required": true, "schema": { "type": "integer", "example": 2024 } },
+          { "name": "month",       "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1, "maximum": 12, "example": 7 } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Collection report", "content": { "application/json": { "example": {
+          "success": true, "data": { "period": "2024-07", "expected": 300000, "collected": 270000, "outstanding": 30000, "collection_rate": 90.0 }
+        }}}}}
+      }
+    },
+
+    "/reports/maintenance": {
+      "get": {
+        "tags": ["Reports"], "summary": "Maintenance analysis by category and property",
+        "parameters": [
+          { "name": "date_from",   "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to",     "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "property_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Maintenance report" } }
+      }
+    },
+
+    "/reports/dashboard": {
+      "get": {
+        "tags": ["Reports"], "summary": "Aggregated KPI dashboard — all key metrics in one call",
+        "responses": { "200": { "description": "Dashboard KPIs", "content": { "application/json": { "example": {
+          "success": true, "data": {
+            "units":               { "total": 80, "occupied": 68, "available": 10, "maintenance": 2 },
+            "revenue":             { "current_month": 340000, "current_year": 2980000 },
+            "accounts_receivable": { "count": 14, "balance": 87500 },
+            "maintenance":         { "open": 8, "urgent": 2 },
+            "leases":              { "active": 68, "expiring_30d": 5 },
+            "occupancy_rate":      85.0
+          }
+        }}}}}
+      }
+    },
+
+    "/users": {
+      "get": {
+        "tags": ["Users"], "summary": "List users — admin only",
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "role",   "in": "query", "schema": { "type": "string", "enum": ["admin","manager","landlord","tenant","accountant","maintenance","auditor","security"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active","inactive","suspended","all"], "default": "active" } },
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/per_page" }
+        ],
+        "responses": { "200": { "description": "Paginated user list" }, "403": { "$ref": "#/components/responses/403" } }
+      },
+      "post": {
+        "tags": ["Users"], "summary": "Create a user — admin only",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["name","email","role","password"],
+            "properties": {
+              "name":     { "type": "string",  "example": "Jane Manager" },
+              "email":    { "type": "string",  "format": "email", "example": "jane@rums.co.ke" },
+              "role":     { "type": "string",  "enum": ["admin","manager","landlord","tenant","accountant","maintenance","auditor","security"] },
+              "password": { "type": "string",  "example": "SecurePass@1" },
+              "phone":    { "type": "string",  "example": "+254711000000" }
+            }
+          }}}
+        },
+        "responses": { "201": { "description": "User created" }, "409": { "description": "Email already registered" } }
+      }
+    },
+
+    "/users/{id}": {
+      "get": {
+        "tags": ["Users"], "summary": "Get user profile — admin only",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "User profile" }, "404": { "$ref": "#/components/responses/404" } }
+      },
+      "patch": {
+        "tags": ["Users"], "summary": "Update user name, phone, role, or password — admin only",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "name":     { "type": "string" },
+              "phone":    { "type": "string" },
+              "role":     { "type": "string" },
+              "password": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+
+    "/users/{id}/status": {
+      "patch": {
+        "tags": ["Users"], "summary": "Change user status — admin only (cannot change own)",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["status"],
+            "properties": { "status": { "type": "string", "enum": ["active","inactive","suspended"] } }
+          }}}
+        },
+        "responses": { "200": { "description": "Status updated" }, "403": { "description": "Cannot modify own status" } }
+      }
+    },
+
+    "/users/{id}/tokens": {
+      "get": {
+        "tags": ["Users"], "summary": "List all API tokens for a user — admin only",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Token list" } }
+      }
+    },
+
+    "/tokens": {
+      "get": {
+        "tags": ["Users"], "summary": "List all tokens across all users — admin only",
+        "parameters": [
+          { "$ref": "#/components/parameters/page" },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer", "default": 50 } }
+        ],
+        "responses": { "200": { "description": "Paginated token list with user info" } }
+      }
+    },
+
+    "/tokens/{id}": {
+      "delete": {
+        "tags": ["Users"], "summary": "Revoke any token by ID — admin only",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": { "200": { "description": "Token revoked" } }
+      }
+    }
+
+  }
+};
+
+window.onload = () => {
+  SwaggerUIBundle({
+    spec,
+    dom_id: '#swagger-ui',
+    deepLinking: true,
+    presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+    layout: 'BaseLayout',
+    persistAuthorization: true,
+    displayRequestDuration: true,
+    filter: true,
+    tryItOutEnabled: true
+  });
+};
+</script>
+</body>
+</html>
