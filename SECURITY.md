@@ -264,7 +264,7 @@ These are returned only to users with the `admin` role.
 Allowed origins are configured in `.env`:
 
 ```
-CORS_ALLOWED_ORIGINS=https://rums.ultimatesolutions.co.ke,https://api.rums.ultimatesolutions.co.ke
+CORS_ALLOWED_ORIGINS=https://app-rums.nexusiot.xyz,https://api-rums.nexusiot.xyz
 ```
 
 In development, `*` is acceptable. In production, only explicitly listed origins are permitted. Preflight `OPTIONS` requests are handled before authentication guards run.
