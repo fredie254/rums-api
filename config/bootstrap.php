@@ -110,8 +110,8 @@ define('CORS_ALLOWED_ORIGINS', env('CORS_ALLOWED_ORIGINS', '*'));
 
 // ── Currency ──────────────────────────────────────────────────
 
-define('CURRENCY_SYMBOL', env('CURRENCY_SYMBOL', 'Ksh'));
-define('CURRENCY_CODE',   env('CURRENCY_CODE',   'KES'));
+if (!defined('CURRENCY_SYMBOL')) define('CURRENCY_SYMBOL', env('CURRENCY_SYMBOL', 'Ksh'));
+if (!defined('CURRENCY_CODE'))   define('CURRENCY_CODE',   env('CURRENCY_CODE',   'KES'));
 
 // ── Database ──────────────────────────────────────────────────
 
