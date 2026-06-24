@@ -10,14 +10,37 @@ ALTER TABLE `landlords`
     MODIFY COLUMN `bank_account` TEXT            DEFAULT NULL COMMENT 'AES-256-GCM encrypted',
     MODIFY COLUMN `mpesa_number` TEXT            DEFAULT NULL COMMENT 'AES-256-GCM encrypted';
 
--- 2. Add the hash column if it doesn't already exist (MySQL 8.0+)
-ALTER TABLE `landlords`
-    ADD COLUMN IF NOT EXISTS `id_number_hash` CHAR(64) DEFAULT NULL COMMENT 'SHA-256 of plaintext id_number'
-    AFTER `id_number`;
+-- 2. Add id_number_hash column if it doesn't already exist
+DROP PROCEDURE IF EXISTS _rums_migrate;
+DELIMITER $$
+CREATE PROCEDURE _rums_migrate()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'landlords'
+          AND COLUMN_NAME  = 'id_number_hash'
+    ) THEN
+        ALTER TABLE `landlords`
+            ADD COLUMN `id_number_hash` CHAR(64) DEFAULT NULL
+                COMMENT 'SHA-256 of plaintext id_number'
+            AFTER `id_number`;
+    END IF;
 
--- 3. Unique index on the hash (skip if already exists)
-ALTER TABLE `landlords`
-    ADD UNIQUE KEY IF NOT EXISTS `uq_landlords_id_number_hash` (`id_number_hash`);
+    -- 3. Unique index if it doesn't already exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'landlords'
+          AND INDEX_NAME   = 'uq_landlords_id_number_hash'
+    ) THEN
+        ALTER TABLE `landlords`
+            ADD UNIQUE KEY `uq_landlords_id_number_hash` (`id_number_hash`);
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_migrate();
+DROP PROCEDURE IF EXISTS _rums_migrate;
 
 -- 4. Back-fill hash for existing plaintext rows
 --    (Encryptor::hash uses sha256 of lower(trim(value)))
