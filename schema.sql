@@ -3078,7 +3078,7 @@ INSERT INTO `settings` (`setting_key`, `setting_value`) VALUES
 ('currency_decimal_sep', '.'),
 ('currency_decimals', '0'),
 ('currency_position', 'before'),
-('currency_symbol', 'USh'),
+('currency_symbol', 'Ksh'),
 ('currency_thousand_sep', ','),
 ('timezone', 'Africa/Nairobi');
 
