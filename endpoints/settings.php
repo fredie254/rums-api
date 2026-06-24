@@ -77,8 +77,7 @@ function registerSettingRoutes(Router $router, PDO $db): void
             ApiResponse::ok(null, 'Settings saved.');
         } catch (Throwable $e) {
             $db->rollBack();
-            error_log('[settings] update failed: ' . $e->getMessage());
-            ApiResponse::serverError('Failed to save settings.');
+            ApiResponse::serverError('Failed to save settings.', $e);
         }
     });
 }

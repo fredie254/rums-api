@@ -1,51 +1,58 @@
 <?php
 /**
- * RUMS API — Authentication Middleware
+ * RUMS API — Authentication & Rate Limiting
  *
- * Bearer token validation, scope enforcement, rate limiting,
- * and token issuance.
- *
- * Usage:
- *   ApiAuth::require($db)               — 401 if no valid token
- *   ApiAuth::requireScope($db, 'read:properties')
- *   ApiAuth::requireRole($db, 'admin', 'manager')
- *   ApiAuth::rateLimit($db)             — 429 if over limit
- *   ApiAuth::issueToken($db, $userId, 'name', 'scope1,scope2', 365)
+ * Performance design:
+ *  - Token resolved once per request and stored in static props
+ *  - APCu used as an L1 cache for token DB lookups (60 s TTL)
+ *  - last_used updated lazily: only when stale > 5 min, in shutdown
+ *  - Request logging written in a shutdown function (after response sent)
+ *  - Rate limit uses a single atomic MySQL round-trip via LAST_INSERT_ID()
  */
 class ApiAuth
 {
     private static ?array $currentToken = null;
     private static ?array $currentUser  = null;
 
+    private const APCU_TTL          = 60;   // seconds — token cache lifetime
+    private const LAST_USED_STALE   = 300;  // seconds — min gap between last_used writes
+
     // ── Token resolution ──────────────────────────────────────
 
-    /**
-     * Extract and validate a Bearer token.
-     * Also accepts ?api_token= query param for read-only GET convenience.
-     * Returns the token row (with joined user columns) or null.
-     */
     public static function resolve(PDO $db): ?array
     {
-        // Authorization: Bearer <token>
+        // Already resolved this request
+        if (self::$currentToken !== null) return self::$currentToken;
+
         $header = $_SERVER['HTTP_AUTHORIZATION']
                ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
                ?? '';
 
-        if ($header && str_starts_with($header, 'Bearer ')) {
-            $raw = trim(substr($header, 7));
-        } else {
-            // Fallback: GET ?api_token= (convenience, read-only)
-            $raw = $_GET['api_token'] ?? '';
-        }
+        $raw = $header && str_starts_with($header, 'Bearer ')
+            ? trim(substr($header, 7))
+            : ($_GET['api_token'] ?? '');
 
         if (strlen($raw) < 16) return null;
 
+        // ── L1: APCu token cache ──────────────────────────────
+        $cacheKey = 'rums_tok_' . hash('sha256', $raw);
+        if (function_exists('apcu_fetch')) {
+            $cached = apcu_fetch($cacheKey, $hit);
+            if ($hit) {
+                if ($cached['user_status'] !== 'active') return null;
+                self::hydrate($cached);
+                self::scheduleLog($db, $cached['id'], (int)$cached['user_id']);
+                return $cached;
+            }
+        }
+
+        // ── L2: DB lookup ─────────────────────────────────────
         $stmt = $db->prepare(
             "SELECT t.*,
-                u.id   AS user_id,
-                u.name  AS user_name,
-                u.email AS user_email,
-                u.role  AS user_role,
+                u.id     AS user_id,
+                u.name   AS user_name,
+                u.email  AS user_email,
+                u.role   AS user_role,
                 u.status AS user_status
              FROM api_tokens t
              JOIN users u ON u.id = t.user_id
@@ -56,32 +63,27 @@ class ApiAuth
         $stmt->execute([$raw]);
         $token = $stmt->fetch();
 
-        if (!$token)                             return null;
-        if ($token['user_status'] !== 'active')  return null;
+        if (!$token || $token['user_status'] !== 'active') return null;
 
-        // Touch last_used (fire-and-forget)
-        try {
-            $db->prepare("UPDATE api_tokens SET last_used = NOW() WHERE id = ?")
-               ->execute([$token['id']]);
-        } catch (Throwable) {}
+        // Store in APCu — next request for this token skips the DB join
+        if (function_exists('apcu_store')) {
+            apcu_store($cacheKey, $token, self::APCU_TTL);
+        }
 
-        // Log the request
-        self::logRequest($db, $token['id'], $token['user_id']);
+        // last_used: only write when stale to reduce write amplification
+        $lastUsed = $token['last_used'] ? strtotime($token['last_used']) : 0;
+        if ((time() - $lastUsed) > self::LAST_USED_STALE) {
+            self::scheduleLastUsed($db, (int)$token['id']);
+        }
 
-        self::$currentToken = $token;
-        self::$currentUser  = [
-            'id'    => (int)$token['user_id'],
-            'name'  => $token['user_name'],
-            'email' => $token['user_email'],
-            'role'  => $token['user_role'],
-        ];
+        self::scheduleLog($db, (int)$token['id'], (int)$token['user_id']);
+        self::hydrate($token);
 
         return $token;
     }
 
     // ── Guards ────────────────────────────────────────────────
 
-    /** Require a valid token or terminate with 401. */
     public static function require(PDO $db): array
     {
         $token = self::resolve($db);
@@ -89,7 +91,6 @@ class ApiAuth
         return $token;
     }
 
-    /** Require a token that has a specific scope (admin bypasses). */
     public static function requireScope(PDO $db, string $scope): array
     {
         $token = self::require($db);
@@ -99,7 +100,6 @@ class ApiAuth
         return $token;
     }
 
-    /** Require token AND the user must be one of the given roles. */
     public static function requireRole(PDO $db, string ...$roles): array
     {
         $token = self::require($db);
@@ -111,51 +111,43 @@ class ApiAuth
 
     // ── Scope helpers ─────────────────────────────────────────
 
-    /** Admin role and admin scope bypass all scope checks. */
     public static function hasScope(array $token, string $scope): bool
     {
-        if (($token['user_role'] ?? '') === 'admin')  return true;
-        if (str_contains($token['scopes'] ?? '', 'admin')) return true;
-        return str_contains($token['scopes'] ?? '', $scope);
+        if (($token['user_role'] ?? '') === 'admin') return true;
+        $scopes = $token['scopes'] ?? '';
+        return str_contains($scopes, 'admin') || str_contains($scopes, $scope);
     }
 
     // ── Accessors ─────────────────────────────────────────────
 
-    public static function token(): ?array    { return self::$currentToken; }
-    public static function user(): ?array     { return self::$currentUser; }
-    public static function userId(): ?int     { return self::$currentUser ? (int)self::$currentUser['id'] : null; }
-    public static function userRole(): ?string{ return self::$currentUser['role'] ?? null; }
+    public static function token(): ?array     { return self::$currentToken; }
+    public static function user(): ?array      { return self::$currentUser; }
+    public static function userId(): ?int      { return self::$currentUser ? (int)self::$currentUser['id'] : null; }
+    public static function userRole(): ?string { return self::$currentUser['role'] ?? null; }
 
-    // ── Rate limiting (sliding window) ────────────────────────
+    // ── Rate limiting ─────────────────────────────────────────
 
     public static function rateLimit(PDO $db): void
     {
         $limit  = defined('API_RATE_LIMIT')  ? API_RATE_LIMIT  : 120;
         $window = defined('API_RATE_WINDOW') ? API_RATE_WINDOW :  60;
 
-        $identifier = self::$currentToken
+        $identifier  = self::$currentToken
             ? 'token:' . self::$currentToken['id']
             : 'ip:'    . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 
-        $windowStart = date('Y-m-d H:i:s', (int)(time() / $window) * $window);
+        $windowStart = date('Y-m-d H:i:s', intdiv((int)time(), $window) * $window);
 
+        // Single atomic round-trip: increment + read via LAST_INSERT_ID()
         $db->prepare(
             "INSERT INTO api_rate_limits (identifier, window_start, request_count)
-             VALUES (?, ?, 1)
-             ON DUPLICATE KEY UPDATE request_count = request_count + 1"
+             VALUES (?, ?, LAST_INSERT_ID(1))
+             ON DUPLICATE KEY UPDATE request_count = LAST_INSERT_ID(request_count + 1)"
         )->execute([$identifier, $windowStart]);
 
-        $count = (int)$db->prepare(
-            "SELECT request_count FROM api_rate_limits
-             WHERE identifier = ? AND window_start = ?"
-        )->execute([$identifier, $windowStart]) ? 0 : 0;
+        $count = (int)$db->lastInsertId();
+        $reset = intdiv((int)time(), $window) * $window + $window;
 
-        // Fetch separately
-        $cs = $db->prepare("SELECT request_count FROM api_rate_limits WHERE identifier=? AND window_start=?");
-        $cs->execute([$identifier, $windowStart]);
-        $count = (int)$cs->fetchColumn();
-
-        $reset = (int)(time() / $window) * $window + $window;
         header("X-RateLimit-Limit: $limit");
         header("X-RateLimit-Remaining: " . max(0, $limit - $count));
         header("X-RateLimit-Reset: $reset");
@@ -176,35 +168,99 @@ class ApiAuth
     ): string {
         $length    = defined('API_TOKEN_LENGTH') ? API_TOKEN_LENGTH : 64;
         $token     = bin2hex(random_bytes((int)($length / 2)));
-        $expiresAt = $ttlDays > 0
-            ? date('Y-m-d H:i:s', strtotime("+$ttlDays days"))
-            : null;
+        $expiresAt = $ttlDays > 0 ? date('Y-m-d H:i:s', strtotime("+$ttlDays days")) : null;
 
         $db->prepare(
-            "INSERT INTO api_tokens (user_id, token, name, scopes, expires_at)
-             VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO api_tokens (user_id, token, name, scopes, expires_at) VALUES (?, ?, ?, ?, ?)"
         )->execute([$userId, $token, $name, $scopes, $expiresAt]);
 
         return $token;
     }
 
-    // ── Request logging ───────────────────────────────────────
-
-    private static function logRequest(PDO $db, int $tokenId, int $userId): void
+    /**
+     * Evict a single raw token string from APCu.
+     * Call this on logout so the cached entry doesn't linger.
+     */
+    public static function invalidateCache(string $raw): void
     {
-        try {
-            $db->prepare(
-                "INSERT INTO api_request_logs
-                    (token_id, user_id, method, endpoint, status_code, ip_address, user_agent)
-                 VALUES (?, ?, ?, ?, 0, ?, ?)"
-            )->execute([
-                $tokenId,
-                $userId,
-                $_SERVER['REQUEST_METHOD'] ?? 'GET',
-                parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH),
-                $_SERVER['REMOTE_ADDR']     ?? null,
-                substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
-            ]);
-        } catch (Throwable) { /* non-fatal */ }
+        if (function_exists('apcu_delete')) {
+            apcu_delete('rums_tok_' . hash('sha256', $raw));
+        }
+    }
+
+    /**
+     * Evict ALL cached tokens for a given user.
+     * Call this whenever a user's role, status, or name changes so stale
+     * permissions are never served from cache.
+     */
+    public static function invalidateUserTokens(PDO $db, int $userId): void
+    {
+        if (!function_exists('apcu_delete')) return;
+
+        $stmt = $db->prepare(
+            "SELECT token FROM api_tokens WHERE user_id = ? AND revoked = 0"
+        );
+        $stmt->execute([$userId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $tokenValue) {
+            apcu_delete('rums_tok_' . hash('sha256', $tokenValue));
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────
+
+    private static function hydrate(array $token): void
+    {
+        self::$currentToken = $token;
+        self::$currentUser  = [
+            'id'    => (int)$token['user_id'],
+            'name'  => $token['user_name'],
+            'email' => $token['user_email'],
+            'role'  => $token['user_role'],
+        ];
+    }
+
+    /**
+     * Write last_used after the response is sent.
+     * On PHP-FPM with fastcgi_finish_request() the client is already gone.
+     */
+    private static function scheduleLastUsed(PDO $db, int $tokenId): void
+    {
+        register_shutdown_function(static function () use ($db, $tokenId) {
+            if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+            try {
+                $db->prepare("UPDATE api_tokens SET last_used = NOW() WHERE id = ?")
+                   ->execute([$tokenId]);
+            } catch (Throwable) {}
+        });
+    }
+
+    /**
+     * Write request log after the response is sent.
+     * Guarded by a static flag — runs exactly once per request even if
+     * resolve() is called multiple times (scope/role re-checks).
+     */
+    private static function scheduleLog(PDO $db, int $tokenId, int $userId): void
+    {
+        static $scheduled = false;
+        if ($scheduled) return;
+        $scheduled = true;
+
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $path   = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+        $ip     = $_SERVER['REMOTE_ADDR'] ?? null;
+        $ua     = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+
+        register_shutdown_function(
+            static function () use ($db, $tokenId, $userId, $method, $path, $ip, $ua) {
+                if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                try {
+                    $db->prepare(
+                        "INSERT INTO api_request_logs
+                            (token_id, user_id, method, endpoint, status_code, ip_address, user_agent)
+                         VALUES (?, ?, ?, ?, 0, ?, ?)"
+                    )->execute([$tokenId, $userId, $method, $path, $ip, $ua]);
+                } catch (Throwable) {}
+            }
+        );
     }
 }

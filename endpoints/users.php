@@ -84,24 +84,32 @@ function registerUserRoutes(Router $router, PDO $db): void
 
             $responseData = ['id' => $userId];
 
+            // When creating a landlord user, also create their landlords record
+            if ($body['role'] === 'landlord') {
+                $db->prepare(
+                    "INSERT INTO landlords (user_id, notes) VALUES (?, ?)"
+                )->execute([$userId, $body['notes'] ?? null]);
+                $responseData['landlord_id'] = (int)$db->lastInsertId();
+            }
+
             // When creating a tenant user, also create their tenant profile
             if ($body['role'] === 'tenant') {
-                $nameParts  = explode(' ', trim($body['name']), 2);
-                $firstName  = $nameParts[0];
-                $lastName   = $nameParts[1] ?? '';
-                $idNumber   = $body['id_number'] ?? ('USR-' . $userId);
-
+                if (empty($body['id_number'])) {
+                    $db->rollBack();
+                    ApiResponse::unprocessable('id_number is required when creating a tenant user.');
+                }
+                $nameParts = explode(' ', trim($body['name']), 2);
                 $db->prepare(
                     "INSERT INTO tenants
                         (user_id, first_name, last_name, email, phone, id_number, status)
                      VALUES (?, ?, ?, ?, ?, ?, 'active')"
                 )->execute([
                     $userId,
-                    $firstName,
-                    $lastName,
+                    $nameParts[0],
+                    $nameParts[1] ?? '',
                     $body['email'],
                     $body['phone'] ?? null,
-                    $idNumber,
+                    $body['id_number'],
                 ]);
                 $responseData['tenant_id'] = (int)$db->lastInsertId();
             }
@@ -109,8 +117,7 @@ function registerUserRoutes(Router $router, PDO $db): void
             $db->commit();
         } catch (Throwable $e) {
             $db->rollBack();
-            error_log('[users POST] ' . $e->getMessage());
-            ApiResponse::serverError('Failed to create user.');
+            ApiResponse::serverError('Failed to create user.', $e);
         }
 
         ApiResponse::created($responseData, 'User created.');
@@ -136,9 +143,13 @@ function registerUserRoutes(Router $router, PDO $db): void
         }
 
         if (!$allowed) ApiResponse::badRequest('No valid fields to update.');
-        $set  = implode(', ', array_map(fn($k) => "$k = ?", array_keys($allowed)));
+        $set = implode(', ', array_map(fn($k) => "$k = ?", array_keys($allowed)));
         $db->prepare("UPDATE users SET $set WHERE id = ?")
            ->execute([...array_values($allowed), (int)$id]);
+
+        // Role or name change — purge cached tokens so permissions update immediately
+        ApiAuth::invalidateUserTokens($db, (int)$id);
+
         ApiResponse::ok(null, 'User updated.');
     });
 
@@ -152,6 +163,10 @@ function registerUserRoutes(Router $router, PDO $db): void
             ApiResponse::forbidden('Cannot modify your own status.');
         }
         $db->prepare("UPDATE users SET status = ? WHERE id = ?")->execute([$status, (int)$id]);
+
+        // Status change must take effect immediately — purge cached tokens
+        ApiAuth::invalidateUserTokens($db, (int)$id);
+
         ApiResponse::ok(['status' => $status], 'User status updated.');
     });
 
@@ -187,7 +202,16 @@ function registerUserRoutes(Router $router, PDO $db): void
 
     $router->delete('tokens/{id}', function (string $id) use ($db) {
         ApiAuth::requireRole($db, 'admin');
+
+        // Fetch token value BEFORE revoking so we can evict it from APCu
+        $row = $db->prepare("SELECT token FROM api_tokens WHERE id = ? AND revoked = 0");
+        $row->execute([(int)$id]);
+        $tokenValue = $row->fetchColumn();
+
         $db->prepare("UPDATE api_tokens SET revoked = 1 WHERE id = ?")->execute([(int)$id]);
+
+        if ($tokenValue) ApiAuth::invalidateCache($tokenValue);
+
         ApiResponse::ok(null, 'Token revoked.');
     });
 }

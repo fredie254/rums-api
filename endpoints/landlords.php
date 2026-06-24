@@ -140,8 +140,7 @@ function registerLandlordRoutes(Router $router, PDO $db): void
             );
         } catch (Throwable $e) {
             $db->rollBack();
-            error_log('[landlords] create failed: ' . $e->getMessage());
-            ApiResponse::serverError('Failed to create landlord.');
+            ApiResponse::serverError('Failed to create landlord.', $e);
         }
     });
 
@@ -236,8 +235,7 @@ function registerLandlordRoutes(Router $router, PDO $db): void
             ApiResponse::ok(null, 'Landlord updated.');
         } catch (Throwable $e) {
             $db->rollBack();
-            error_log('[landlords] update failed: ' . $e->getMessage());
-            ApiResponse::serverError('Failed to update landlord.');
+            ApiResponse::serverError('Failed to update landlord.', $e);
         }
     });
 }

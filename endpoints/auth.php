@@ -90,9 +90,14 @@ function registerAuthRoutes(Router $router, PDO $db): void
 
     // POST /auth/logout ────────────────────────────────────────
     $router->post('auth/logout', function () use ($db) {
+        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+        $raw    = $header && str_starts_with($header, 'Bearer ') ? trim(substr($header, 7)) : '';
+
         $token = ApiAuth::resolve($db);
         if ($token) {
             $db->prepare("UPDATE api_tokens SET revoked = 1 WHERE id = ?")->execute([$token['id']]);
+            // Evict from APCu cache immediately — don't wait for 60 s TTL to expire
+            if ($raw !== '') ApiAuth::invalidateCache($raw);
         }
         ApiResponse::ok(null, 'Logged out.');
     });

@@ -16,8 +16,23 @@ declare(strict_types=1);
  */
 function load_dotenv(string $path): void
 {
+    // APCu cache: avoid disk read on every request in production
+    if (function_exists('apcu_fetch')) {
+        $cached = apcu_fetch('rums_dotenv', $hit);
+        if ($hit) {
+            foreach ($cached as $k => $v) {
+                if (!isset($_ENV[$k]) && getenv($k) === false) {
+                    $_ENV[$k] = $v;
+                    putenv("$k=$v");
+                }
+            }
+            return;
+        }
+    }
+
     if (!file_exists($path)) return;
 
+    $loaded = [];
     foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
         if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
@@ -26,22 +41,28 @@ function load_dotenv(string $path): void
         $key   = trim($key);
         $value = trim($value);
 
-        // Strip inline comments
+        // Strip inline comments (space + hash)
         if (str_contains($value, ' #')) {
             $value = trim(explode(' #', $value, 2)[0]);
         }
 
         // Strip surrounding quotes
         if (strlen($value) >= 2
-            && in_array($value[0], ['"', "'"])
+            && in_array($value[0], ['"', "'"], true)
             && $value[0] === $value[strlen($value) - 1]) {
             $value = substr($value, 1, -1);
         }
 
+        $loaded[$key] = $value;
         if (!isset($_ENV[$key]) && getenv($key) === false) {
             $_ENV[$key] = $value;
             putenv("$key=$value");
         }
+    }
+
+    // Cache parsed env for 5 minutes — clear by restarting FPM or apcu_clear_cache()
+    if (function_exists('apcu_store') && !empty($loaded)) {
+        apcu_store('rums_dotenv', $loaded, 300);
     }
 }
 

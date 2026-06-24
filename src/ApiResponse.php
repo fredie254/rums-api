@@ -119,9 +119,16 @@ class ApiResponse
 
     // ── 5xx ──────────────────────────────────────────────────
 
-    public static function serverError(string $message = 'Internal server error.'): never
+    public static function serverError(string $message = 'Internal server error.', ?\Throwable $e = null): never
     {
-        self::send(500, false, null, $message);
+        if ($e !== null) {
+            error_log('[API 500] ' . get_class($e) . ': ' . $e->getMessage()
+                . ' in ' . $e->getFile() . ':' . $e->getLine());
+        }
+        $debug = (defined('APP_ENV') && APP_ENV !== 'production' && $e !== null)
+            ? ['debug' => $e->getMessage()]
+            : null;
+        self::send(500, false, $debug, $message);
     }
 
     public static function serviceUnavailable(string $message = 'Service unavailable.'): never
@@ -159,7 +166,10 @@ class ApiResponse
             $body['_ms'] = round((microtime(true) - self::$startTime) * 1000, 2);
         }
 
-        echo json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        // JSON_PRETTY_PRINT only in non-production — saves ~40% response size in prod
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        if (defined('APP_ENV') && APP_ENV !== 'production') $flags |= JSON_PRETTY_PRINT;
+        echo json_encode($body, $flags);
         exit;
     }
 }
