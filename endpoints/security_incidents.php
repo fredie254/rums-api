@@ -78,23 +78,34 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
         $body = Router::body();
         $user = ApiAuth::user();
 
-        $db->prepare(
-            "INSERT INTO security_incidents
-             (property_id, unit_id, incident_type, severity, incident_date,
-              description, persons_involved, action_taken, police_ref, logged_by)
-             VALUES (?,?,?,?,?,?,?,?,?,?)"
-        )->execute([
-            (int)($body['property_id'] ?? 0) ?: null,
-            (int)($body['unit_id']     ?? 0) ?: null,
-            $body['incident_type']       ?? 'other',
-            $body['severity']            ?? 'medium',
-            $body['incident_date']       ?? date('Y-m-d H:i:s'),
-            $body['description']         ?? '',
-            $body['persons_involved']    ?? null,
-            $body['action_taken']        ?? null,
-            $body['police_ref']          ?? null,
-            $user['id'],
-        ]);
+        if (empty($body['incident_type'])) {
+            ApiResponse::unprocessable('incident_type is required.');
+        }
+        if (empty($body['description'])) {
+            ApiResponse::unprocessable('description is required.');
+        }
+
+        try {
+            $db->prepare(
+                "INSERT INTO security_incidents
+                 (property_id, unit_id, incident_type, severity, incident_date,
+                  description, persons_involved, action_taken, police_ref, logged_by)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)"
+            )->execute([
+                (int)($body['property_id'] ?? 0) ?: null,
+                (int)($body['unit_id']     ?? 0) ?: null,
+                $body['incident_type']       ?? 'other',
+                $body['severity']            ?? 'medium',
+                $body['incident_date']       ?? date('Y-m-d H:i:s'),
+                $body['description']         ?? '',
+                $body['persons_involved']    ?? null,
+                $body['action_taken']        ?? null,
+                $body['police_ref']          ?? null,
+                $user['id'],
+            ]);
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to save incident.', $e);
+        }
 
         ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Incident reported.');
     });
