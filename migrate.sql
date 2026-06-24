@@ -117,6 +117,91 @@ SET `id_number_hash` = SHA2(LOWER(TRIM(`id_number`)), 256)
 WHERE `id_number` IS NOT NULL
   AND `id_number` NOT LIKE 'enc1:%';
 
+-- ── Tenants table fixes ─────────────────────────────────────────
+
+DROP PROCEDURE IF EXISTS _rums_tenant_migrate;
+DELIMITER $$
+CREATE PROCEDURE _rums_tenant_migrate()
+BEGIN
+    -- Make id_number nullable (backfill records may not have it yet)
+    IF EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'tenants'
+          AND COLUMN_NAME  = 'id_number'
+          AND IS_NULLABLE  = 'NO'
+    ) THEN
+        ALTER TABLE `tenants` MODIFY COLUMN `id_number` VARCHAR(30) DEFAULT NULL;
+    END IF;
+
+    -- Make phone nullable too (user may not have provided it)
+    IF EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'tenants'
+          AND COLUMN_NAME  = 'phone'
+          AND IS_NULLABLE  = 'NO'
+    ) THEN
+        ALTER TABLE `tenants` MODIFY COLUMN `phone` VARCHAR(30) DEFAULT NULL;
+    END IF;
+
+    -- Add id_number_hash column if missing
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'tenants'
+          AND COLUMN_NAME  = 'id_number_hash'
+    ) THEN
+        ALTER TABLE `tenants`
+            ADD COLUMN `id_number_hash` CHAR(64) DEFAULT NULL
+                COMMENT 'SHA-256 of plaintext id_number'
+            AFTER `id_number`;
+    END IF;
+
+    -- Add unique index on id_number_hash
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'tenants'
+          AND INDEX_NAME   = 'uq_tenants_id_number_hash'
+    ) THEN
+        ALTER TABLE `tenants`
+            ADD UNIQUE KEY `uq_tenants_id_number_hash` (`id_number_hash`);
+    END IF;
+
+    -- Backfill landlord profiles for landlord users that have no profile
+    INSERT INTO `landlords` (`user_id`)
+    SELECT u.id FROM `users` u
+    WHERE u.role = 'landlord'
+      AND NOT EXISTS (SELECT 1 FROM `landlords` l WHERE l.user_id = u.id);
+
+    -- Backfill tenant profiles for tenant users that have no profile
+    INSERT INTO `tenants` (`user_id`, `first_name`, `last_name`, `email`, `phone`, `status`)
+    SELECT
+        u.id,
+        TRIM(SUBSTRING_INDEX(u.name, ' ', 1)),
+        TRIM(CASE WHEN LOCATE(' ', u.name) > 0
+             THEN SUBSTRING(u.name FROM LOCATE(' ', u.name) + 1)
+             ELSE '' END),
+        u.email,
+        u.phone,
+        'active'
+    FROM `users` u
+    WHERE u.role = 'tenant'
+      AND NOT EXISTS (SELECT 1 FROM `tenants` t WHERE t.user_id = u.id);
+
+END$$
+DELIMITER ;
+CALL _rums_tenant_migrate();
+DROP PROCEDURE IF EXISTS _rums_tenant_migrate;
+
+-- Backfill id_number_hash for existing tenant rows with a plaintext id_number
+UPDATE `tenants`
+SET `id_number_hash` = SHA2(LOWER(TRIM(`id_number`)), 256)
+WHERE `id_number` IS NOT NULL
+  AND `id_number` != ''
+  AND `id_number_hash` IS NULL;
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);

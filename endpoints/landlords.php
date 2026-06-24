@@ -82,6 +82,49 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         ApiAuth::requireRole($db, 'admin', 'manager');
 
         $body = Router::body();
+
+        // ── Link existing user to a landlord profile ──────────
+        if (!empty($body['user_id'])) {
+            $userId = (int)$body['user_id'];
+            $uStmt  = $db->prepare("SELECT id, role FROM users WHERE id = ?");
+            $uStmt->execute([$userId]);
+            $uRow = $uStmt->fetch();
+            if (!$uRow) ApiResponse::notFound('User not found.');
+            if ($uRow['role'] !== 'landlord') ApiResponse::badRequest('User role must be landlord.');
+
+            $dupCheck = $db->prepare("SELECT id FROM landlords WHERE user_id = ?");
+            $dupCheck->execute([$userId]);
+            if ($dupCheck->fetch()) ApiResponse::conflict('A landlord profile already exists for this user.');
+
+            $db->beginTransaction();
+            try {
+                $db->prepare(
+                    "INSERT INTO landlords
+                        (user_id, id_number, id_number_hash, kra_pin, bank_name,
+                         bank_account, bank_branch, mpesa_number, commission_rate, notes)
+                     VALUES (?,?,?,?,?,?,?,?,?,?)"
+                )->execute([
+                    $userId,
+                    isset($body['id_number']) ? Encryptor::encrypt($body['id_number']) : null,
+                    isset($body['id_number']) ? Encryptor::hash($body['id_number'])    : null,
+                    isset($body['kra_pin'])   ? Encryptor::encrypt($body['kra_pin'])   : null,
+                    $body['bank_name']    ?? null,
+                    isset($body['bank_account'])  ? Encryptor::encrypt($body['bank_account'])  : null,
+                    $body['bank_branch']  ?? null,
+                    isset($body['mpesa_number'])  ? Encryptor::encrypt($body['mpesa_number'])  : null,
+                    (float)($body['commission_rate'] ?? 0),
+                    $body['notes'] ?? null,
+                ]);
+                $landlordId = (int)$db->lastInsertId();
+                $db->commit();
+                ApiResponse::created(['id' => $landlordId, 'user_id' => $userId], 'Landlord profile created.');
+            } catch (Throwable $e) {
+                $db->rollBack();
+                ApiResponse::serverError('Failed to create landlord profile.', $e);
+            }
+            return;
+        }
+
         foreach (['name', 'email', 'phone', 'id_number'] as $field) {
             if (empty($body[$field])) ApiResponse::unprocessable("Field '$field' is required.");
         }

@@ -147,6 +147,32 @@ function registerUserRoutes(Router $router, PDO $db): void
         $db->prepare("UPDATE users SET $set WHERE id = ?")
            ->execute([...array_values($allowed), (int)$id]);
 
+        // Auto-create landlord/tenant profile if role just changed
+        if (!empty($body['role'])) {
+            if ($body['role'] === 'landlord') {
+                $chk = $db->prepare("SELECT id FROM landlords WHERE user_id = ?");
+                $chk->execute([(int)$id]);
+                if (!$chk->fetch()) {
+                    $db->prepare("INSERT INTO landlords (user_id) VALUES (?)")->execute([(int)$id]);
+                }
+            } elseif ($body['role'] === 'tenant') {
+                $chk = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
+                $chk->execute([(int)$id]);
+                if (!$chk->fetch()) {
+                    $u = $db->prepare("SELECT name, email, phone FROM users WHERE id = ?");
+                    $u->execute([(int)$id]);
+                    $uRow = $u->fetch();
+                    if ($uRow) {
+                        $parts = explode(' ', trim($uRow['name']), 2);
+                        $db->prepare(
+                            "INSERT INTO tenants (user_id, first_name, last_name, email, phone, status)
+                             VALUES (?,?,?,?,?,'active')"
+                        )->execute([(int)$id, $parts[0], $parts[1] ?? '', $uRow['email'], $uRow['phone']]);
+                    }
+                }
+            }
+        }
+
         // Role or name change — purge cached tokens so permissions update immediately
         ApiAuth::invalidateUserTokens($db, (int)$id);
 

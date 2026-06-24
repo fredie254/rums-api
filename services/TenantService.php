@@ -113,13 +113,66 @@ class TenantService extends BaseService
 
     public function create(array $data): array
     {
+        // ── Link existing user to a tenant profile ────────────
+        if (!empty($data['user_id'])) {
+            $userId     = (int)$data['user_id'];
+            $existingUser = $this->fetchOne(
+                "SELECT id, name, email, phone, role FROM users WHERE id = ?", [$userId]
+            );
+            if (!$existingUser) return ['success' => false, 'message' => 'User not found.'];
+            if ($existingUser['role'] !== 'tenant') return ['success' => false, 'message' => 'User role must be tenant.'];
+
+            $already = $this->fetchColumn("SELECT COUNT(*) FROM tenants WHERE user_id = ?", [$userId]);
+            if ($already > 0) return ['success' => false, 'message' => 'A tenant profile already exists for this user.'];
+
+            $nameParts  = explode(' ', trim($existingUser['name']), 2);
+            $allowed    = $this->only($data, [
+                'first_name', 'last_name', 'email', 'phone', 'id_number', 'id_type',
+                'dob', 'gender', 'nationality', 'emergency_contact_name', 'emergency_contact_phone',
+                'next_of_kin_name', 'next_of_kin_phone', 'occupation', 'employer',
+                'monthly_income', 'notes', 'status',
+            ]);
+            $allowed['user_id']    = $userId;
+            $allowed['first_name'] = $allowed['first_name'] ?? $nameParts[0];
+            $allowed['last_name']  = $allowed['last_name']  ?? ($nameParts[1] ?? '');
+            $allowed['email']      = strtolower(trim($allowed['email'] ?? $existingUser['email']));
+            $allowed['phone']      = $allowed['phone'] ?? $existingUser['phone'];
+            $allowed['status']     = $allowed['status'] ?? 'active';
+
+            if (!empty($data['id_number'])) {
+                $idNumHash = Encryptor::hash($data['id_number']);
+                $hashExists = $this->fetchColumn(
+                    "SELECT COUNT(*) FROM tenants WHERE id_number_hash = ?", [$idNumHash]
+                );
+                if ($hashExists > 0) return ['success' => false, 'message' => 'ID number already registered.'];
+                $allowed['id_number_hash'] = $idNumHash;
+            }
+
+            $allowed = self::encryptRow($allowed);
+
+            $this->db->beginTransaction();
+            try {
+                $cols   = implode(', ', array_keys($allowed));
+                $places = implode(', ', array_fill(0, count($allowed), '?'));
+                $id     = $this->insert(
+                    "INSERT INTO tenants ($cols) VALUES ($places)", array_values($allowed)
+                );
+                $this->db->commit();
+            } catch (Throwable $e) {
+                $this->db->rollBack();
+                return ['success' => false, 'message' => 'Failed to create tenant profile: ' . $e->getMessage()];
+            }
+
+            return ['success' => true, 'id' => $id, 'user_id' => $userId, 'message' => 'Tenant profile created.'];
+        }
+
+        // ── Create new tenant + user account ─────────────────
         $missing = $this->requireFields($data, ['first_name', 'last_name', 'email', 'phone', 'id_number']);
         if ($missing) return ['success' => false, 'errors' => $missing, 'message' => 'Missing required fields.'];
 
         $email     = strtolower(trim($data['email']));
         $idNumHash = Encryptor::hash($data['id_number']);
 
-        // Uniqueness checks (email unencrypted; id_number via hash)
         $emailExists = $this->fetchColumn("SELECT COUNT(*) FROM tenants WHERE email = ?", [$email]);
         if ($emailExists > 0) return ['success' => false, 'message' => 'Email already in use.'];
 
@@ -141,12 +194,10 @@ class TenantService extends BaseService
         $allowed['status']         = $allowed['status'] ?? 'active';
         $allowed['id_number_hash'] = $idNumHash;
 
-        // Encrypt PII before persisting
         $allowed = self::encryptRow($allowed);
 
         $this->db->beginTransaction();
         try {
-            // Default password uses plaintext id_number (before encryption)
             $defaultPassword = 'Tenant@' . substr(preg_replace('/\D/', '', $data['id_number']), -4);
 
             $userId = $this->insert(
