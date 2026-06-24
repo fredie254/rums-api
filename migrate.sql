@@ -271,6 +271,40 @@ DELIMITER ;
 CALL _rums_tenants_widen();
 DROP PROCEDURE IF EXISTS _rums_tenants_widen;
 
+-- ── Maintenance request activity log ────────────────────────
+DROP PROCEDURE IF EXISTS _rums_maintenance_logs_create;
+DELIMITER $$
+CREATE PROCEDURE _rums_maintenance_logs_create()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'maintenance_request_logs'
+    ) THEN
+        CREATE TABLE `maintenance_request_logs` (
+            `id`          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+            `request_id`  INT UNSIGNED    NOT NULL,
+            `user_id`     INT UNSIGNED    DEFAULT NULL,
+            `user_name`   VARCHAR(100)    DEFAULT NULL,
+            `action`      VARCHAR(80)     NOT NULL,
+            `from_value`  VARCHAR(150)    DEFAULT NULL,
+            `to_value`    VARCHAR(150)    DEFAULT NULL,
+            `note`        TEXT            DEFAULT NULL,
+            `created_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_mrl_request_id` (`request_id`),
+            KEY `idx_mrl_created_at` (`created_at`),
+            CONSTRAINT `fk_mrl_request` FOREIGN KEY (`request_id`)
+                REFERENCES `maintenance_requests` (`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_mrl_user` FOREIGN KEY (`user_id`)
+                REFERENCES `users` (`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_maintenance_logs_create();
+DROP PROCEDURE IF EXISTS _rums_maintenance_logs_create;
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);

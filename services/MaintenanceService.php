@@ -92,12 +92,25 @@ class MaintenanceService extends BaseService
         $places = implode(', ', array_fill(0, count($allowed), '?'));
         $id     = $this->insert("INSERT INTO maintenance_requests ($cols) VALUES ($places)", array_values($allowed));
 
+        $this->logActivity(
+            $id, 'created', null, 'open',
+            'Work order ' . $request_number . ' reported: ' . $allowed['issue_title']
+        );
+
+        if (!empty($allowed['assigned_to'])) {
+            $assignedName = $this->fetchColumn(
+                "SELECT name FROM users WHERE id = ?", [(int)$allowed['assigned_to']]
+            ) ?: 'staff';
+            $this->logActivity($id, 'assigned', null, $assignedName, "Assigned to {$assignedName} on creation");
+        }
+
         return ['success' => true, 'id' => $id, 'request_number' => $request_number, 'message' => 'Work order created.'];
     }
 
     public function update(int $id, array $data): array
     {
-        if (!$this->find($id)) return ['success' => false, 'message' => 'Work order not found.'];
+        $current = $this->find($id);
+        if (!$current) return ['success' => false, 'message' => 'Work order not found.'];
 
         $allowed = $this->only($data, [
             'status', 'priority', 'assigned_to', 'notes',
@@ -117,7 +130,50 @@ class MaintenanceService extends BaseService
 
         [$set, $vals] = $this->buildSet($allowed);
         $this->execute("UPDATE maintenance_requests SET $set WHERE id = ?", [...$vals, $id]);
+
+        // ── Log each meaningful change ────────────────────────
+        if (!empty($allowed['status']) && $allowed['status'] !== $current['status']) {
+            $this->logActivity($id, 'status_changed', $current['status'], $allowed['status']);
+        }
+
+        if (array_key_exists('assigned_to', $allowed) && $allowed['assigned_to'] != $current['assigned_to']) {
+            if ($allowed['assigned_to']) {
+                $name = $this->fetchColumn("SELECT name FROM users WHERE id = ?", [(int)$allowed['assigned_to']]) ?: 'staff';
+                $this->logActivity($id, 'assigned', $current['assigned_to_name'] ?: 'Unassigned', $name, "Assigned to {$name}");
+            } else {
+                $this->logActivity($id, 'assigned', $current['assigned_to_name'] ?: null, 'Unassigned', 'Removed assignee');
+            }
+        }
+
+        if (!empty($allowed['notes'])) {
+            $this->logActivity($id, 'note_added', null, null, substr($allowed['notes'], 0, 500));
+        }
+
+        if (!empty($allowed['work_completed']) && empty($current['work_completed'])) {
+            $cost = (float)($allowed['materials_cost'] ?? 0) + (float)($allowed['labour_cost'] ?? 0);
+            $this->logActivity($id, 'completed', null, null,
+                'Work completed' . ($cost > 0 ? ". Cost: " . number_format($cost, 2) : '') .
+                (!empty($allowed['contractor_name']) ? ". Contractor: {$allowed['contractor_name']}" : '')
+            );
+        }
+
+        if (!empty($allowed['priority']) && $allowed['priority'] !== $current['priority']) {
+            $this->logActivity($id, 'priority_changed', $current['priority'], $allowed['priority']);
+        }
+
         return ['success' => true, 'message' => 'Work order updated.'];
+    }
+
+    public function getLogs(int $id): array
+    {
+        return $this->fetchAll(
+            "SELECT l.*, u.name AS actor_name
+             FROM maintenance_request_logs l
+             LEFT JOIN users u ON u.id = l.user_id
+             WHERE l.request_id = ?
+             ORDER BY l.created_at ASC",
+            [$id]
+        );
     }
 
     public function summary(?int $propertyId = null): array
@@ -145,5 +201,28 @@ class MaintenanceService extends BaseService
              WHERE $where",
             $params
         ) ?: [];
+    }
+
+    // ── Activity logger ───────────────────────────────────────────
+    public function logActivity(
+        int     $requestId,
+        string  $action,
+        ?string $fromValue = null,
+        ?string $toValue   = null,
+        ?string $note      = null
+    ): void {
+        try {
+            $user     = ApiAuth::user();
+            $userId   = $user['id']   ?? null;
+            $userName = $user['name'] ?? 'System';
+            $this->execute(
+                "INSERT INTO maintenance_request_logs
+                 (request_id, user_id, user_name, action, from_value, to_value, note)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [$requestId, $userId, $userName, $action, $fromValue, $toValue, $note]
+            );
+        } catch (Throwable $e) {
+            // non-fatal — logging must not break the primary operation
+        }
     }
 }

@@ -2804,6 +2804,29 @@ CREATE TABLE `maintenance_requests` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `maintenance_request_logs`
+--
+
+CREATE TABLE `maintenance_request_logs` (
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
+  `request_id` int UNSIGNED NOT NULL,
+  `user_id` int UNSIGNED DEFAULT NULL,
+  `user_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `from_value` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `to_value` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mrl_request_id` (`request_id`),
+  KEY `idx_mrl_created_at` (`created_at`),
+  CONSTRAINT `fk_mrl_request` FOREIGN KEY (`request_id`) REFERENCES `maintenance_requests` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_mrl_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `message_templates`
 --
 

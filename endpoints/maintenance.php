@@ -98,11 +98,16 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
             : ApiResponse::unprocessable($res['message']);
     });
 
-    $router->post('maintenance/{id}/assign', function (string $id) use ($db) {
+    $router->post('maintenance/{id}/assign', function (string $id) use ($svc, $db) {
         ApiAuth::requireRole($db, 'admin', 'manager');
         $body       = Router::body();
         $assignedTo = (int)($body['assigned_to'] ?? 0);
         if (!$assignedTo) ApiResponse::badRequest('assigned_to is required.');
+
+        // Capture old assignee name before updating
+        $old = $db->prepare("SELECT au.name AS old_name FROM maintenance_requests mr LEFT JOIN users au ON au.id = mr.assigned_to WHERE mr.id = ?");
+        $old->execute([(int)$id]);
+        $oldName = $old->fetchColumn() ?: 'Unassigned';
 
         $db->prepare(
             "UPDATE maintenance_requests
@@ -111,10 +116,15 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
              WHERE id = ?"
         )->execute([$assignedTo, (int)$id]);
 
+        $newName = $db->prepare("SELECT name FROM users WHERE id = ?");
+        $newName->execute([$assignedTo]);
+        $assignedName = $newName->fetchColumn() ?: 'staff';
+
+        $svc->logActivity((int)$id, 'assigned', $oldName, $assignedName, "Assigned to {$assignedName}");
         ApiResponse::ok(null, 'Work order assigned.');
     });
 
-    $router->post('maintenance/{id}/start', function (string $id) use ($db) {
+    $router->post('maintenance/{id}/start', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:maintenance');
         $db->prepare(
             "UPDATE maintenance_requests
@@ -122,28 +132,43 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
                  work_started = COALESCE(work_started, NOW())
              WHERE id = ?"
         )->execute([(int)$id]);
+        $svc->logActivity((int)$id, 'status_changed', 'open', 'in_progress', 'Work started.');
         ApiResponse::ok(null, 'Work order started.');
     });
 
-    $router->post('maintenance/{id}/complete', function (string $id) use ($db) {
+    $router->post('maintenance/{id}/complete', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:maintenance');
         $body = Router::body();
+        $matCost  = (float)($body['materials_cost'] ?? 0);
+        $labCost  = (float)($body['labour_cost']    ?? 0);
         $db->prepare(
             "UPDATE maintenance_requests SET
                 status = 'completed', work_completed = NOW(),
                 labour_hours = ?, materials_cost = ?, labour_cost = ?,
                 contractor_name = ?,
-                notes = CONCAT(COALESCE(notes,''), IF(notes IS NOT NULL,'\n',''), COALESCE(?,'')),
+                notes = CONCAT(COALESCE(notes,''), IF(notes IS NOT NULL AND notes != '','\n',''), COALESCE(?,'')),
                 updated_at = NOW()
              WHERE id = ?"
         )->execute([
-            (float)($body['labour_hours']    ?? 0),
-            (float)($body['materials_cost']  ?? 0),
-            (float)($body['labour_cost']     ?? 0),
-            $body['contractor_name']   ?? null,
-            $body['completion_notes']  ?? null,
+            (float)($body['labour_hours']   ?? 0),
+            $matCost,
+            $labCost,
+            $body['contractor_name']  ?? null,
+            $body['completion_notes'] ?? null,
             (int)$id,
         ]);
+        $total = $matCost + $labCost;
+        $note  = 'Work completed'
+            . ($total > 0 ? '. Total cost: ' . number_format($total, 2) : '')
+            . (!empty($body['contractor_name']) ? '. Contractor: ' . $body['contractor_name'] : '')
+            . (!empty($body['completion_notes']) ? '. Notes: ' . substr($body['completion_notes'], 0, 200) : '');
+        $svc->logActivity((int)$id, 'completed', 'in_progress', 'completed', $note);
         ApiResponse::ok(null, 'Work order completed.');
+    });
+
+    $router->get('maintenance/{id}/logs', function (string $id) use ($svc, $db) {
+        ApiAuth::requireScope($db, 'read:maintenance');
+        $logs = $svc->getLogs((int)$id);
+        ApiResponse::ok($logs);
     });
 }
