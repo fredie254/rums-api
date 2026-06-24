@@ -293,6 +293,33 @@ class TenantService extends BaseService
         return ['success' => true, 'message' => 'Tenant updated.'];
     }
 
+    public function delete(int $id): array
+    {
+        $tenant = $this->fetchOne("SELECT id, user_id FROM tenants WHERE id = ?", [$id]);
+        if (!$tenant) return ['success' => false, 'message' => 'Tenant not found.'];
+
+        $activeLeases = $this->fetchColumn(
+            "SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND status = 'active'", [$id]
+        );
+        if ($activeLeases > 0) {
+            return ['success' => false, 'message' => 'Cannot delete tenant with an active lease. End the lease first.'];
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $this->execute("DELETE FROM tenants WHERE id = ?", [$id]);
+            if (!empty($tenant['user_id'])) {
+                $this->execute("UPDATE users SET status = 'inactive' WHERE id = ?", [(int)$tenant['user_id']]);
+            }
+            $this->db->commit();
+        } catch (Throwable $e) {
+            $this->db->rollBack();
+            return ['success' => false, 'message' => 'Delete failed: ' . $e->getMessage()];
+        }
+
+        return ['success' => true, 'message' => 'Tenant deleted.'];
+    }
+
     public function getStatement(int $tenantId, string $dateFrom, string $dateTo): array
     {
         $payments = $this->fetchAll(

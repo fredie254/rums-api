@@ -70,6 +70,14 @@ function registerTenantRoutes(Router $router, PDO $db): void
             : ApiResponse::unprocessable($res['message']);
     });
 
+    $router->delete('tenants/{id}', function (string $id) use ($svc, $db) {
+        ApiAuth::requireRole($db, 'admin');
+        $res = $svc->delete((int)$id);
+        $res['success']
+            ? ApiResponse::ok(null, $res['message'])
+            : ApiResponse::unprocessable($res['message']);
+    });
+
     $router->get('tenants/{id}/statement', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:tenants');
         $from = Router::strParam('date_from', date('Y-m-01'));
