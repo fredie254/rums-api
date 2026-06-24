@@ -248,6 +248,29 @@ DELIMITER ;
 CALL _rums_units_migrate();
 DROP PROCEDURE IF EXISTS _rums_units_migrate;
 
+-- ── Tenants: widen encrypted PII columns ──────────────────────
+-- AES-256-GCM output: "enc1:" + base64(12-byte IV + 16-byte tag + plaintext)
+-- A 150-char plaintext encrypts to ~245 chars; varchar(512) covers all cases.
+-- dob (date) and monthly_income (decimal) must become varchar to hold ciphertext.
+DROP PROCEDURE IF EXISTS _rums_tenants_widen;
+DELIMITER $$
+CREATE PROCEDURE _rums_tenants_widen()
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='phone'                  AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `phone`                  VARCHAR(512) COLLATE utf8mb4_unicode_ci NOT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='id_number'               AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `id_number`               VARCHAR(512) COLLATE utf8mb4_unicode_ci NOT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='dob'                     AND DATA_TYPE='date')              THEN ALTER TABLE `tenants` MODIFY COLUMN `dob`                     VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='monthly_income'           AND DATA_TYPE='decimal')           THEN ALTER TABLE `tenants` MODIFY COLUMN `monthly_income`           VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='occupation'               AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `occupation`               VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='employer'                 AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `employer`                 VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='emergency_contact_name'   AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `emergency_contact_name`   VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='emergency_contact_phone'  AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `emergency_contact_phone`  VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='next_of_kin_name'         AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `next_of_kin_name`         VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenants' AND COLUMN_NAME='next_of_kin_phone'        AND CHARACTER_MAXIMUM_LENGTH < 512) THEN ALTER TABLE `tenants` MODIFY COLUMN `next_of_kin_phone`        VARCHAR(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL; END IF;
+END$$
+DELIMITER ;
+CALL _rums_tenants_widen();
+DROP PROCEDURE IF EXISTS _rums_tenants_widen;
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);
