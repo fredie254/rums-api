@@ -10,14 +10,14 @@ ALTER TABLE `landlords`
     MODIFY COLUMN `bank_account` TEXT            DEFAULT NULL COMMENT 'AES-256-GCM encrypted',
     MODIFY COLUMN `mpesa_number` TEXT            DEFAULT NULL COMMENT 'AES-256-GCM encrypted';
 
--- 2. Add the hash column for unique-index lookups on encrypted id_number
+-- 2. Add the hash column if it doesn't already exist (MySQL 8.0+)
 ALTER TABLE `landlords`
-    ADD COLUMN `id_number_hash` CHAR(64) DEFAULT NULL COMMENT 'SHA-256 of plaintext id_number'
+    ADD COLUMN IF NOT EXISTS `id_number_hash` CHAR(64) DEFAULT NULL COMMENT 'SHA-256 of plaintext id_number'
     AFTER `id_number`;
 
--- 3. Unique index on the hash (replaces any direct VARCHAR unique on id_number)
+-- 3. Unique index on the hash (skip if already exists)
 ALTER TABLE `landlords`
-    ADD UNIQUE KEY `uq_landlords_id_number_hash` (`id_number_hash`);
+    ADD UNIQUE KEY IF NOT EXISTS `uq_landlords_id_number_hash` (`id_number_hash`);
 
 -- 4. Back-fill hash for existing plaintext rows
 --    (Encryptor::hash uses sha256 of lower(trim(value)))
