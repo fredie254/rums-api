@@ -305,6 +305,15 @@ DELIMITER ;
 CALL _rums_maintenance_logs_create();
 DROP PROCEDURE IF EXISTS _rums_maintenance_logs_create;
 
+-- ── Patch existing tenant tokens: add read:maintenance scope ─
+-- Tenant scope was missing read:maintenance — this backfills active tokens.
+UPDATE `api_tokens` at
+JOIN `users` u ON u.id = at.user_id
+SET at.scopes = 'read:leases,read:payments,read:invoices,read:maintenance,write:maintenance'
+WHERE u.role = 'tenant'
+  AND at.revoked = 0
+  AND at.scopes NOT LIKE '%read:maintenance%';
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);

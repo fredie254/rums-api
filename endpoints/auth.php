@@ -66,7 +66,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
             'maintenance' => 'read:units,read:maintenance,write:maintenance',
             'auditor'     => 'read:properties,read:units,read:tenants,read:leases,read:payments,read:invoices,read:reports',
             'security'    => 'read:properties,read:units',
-            'tenant'      => 'read:leases,read:payments,read:invoices,write:maintenance',
+            'tenant'      => 'read:leases,read:payments,read:invoices,read:maintenance,write:maintenance',
         ];
         $scopes = $scopeMap[$u['role']] ?? 'read:properties';
         $ttl    = (int)env('API_TOKEN_EXPIRY_DAYS', 365);
