@@ -207,6 +207,15 @@ DROP PROCEDURE IF EXISTS _rums_units_migrate;
 DELIMITER $$
 CREATE PROCEDURE _rums_units_migrate()
 BEGIN
+    -- Widen floor to varchar so values like 'G', 'B1', 'Groundfloor' are accepted
+    IF EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units'
+          AND COLUMN_NAME = 'floor' AND DATA_TYPE = 'tinyint'
+    ) THEN
+        ALTER TABLE `units` MODIFY COLUMN `floor` VARCHAR(20) DEFAULT NULL;
+    END IF;
+
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units' AND COLUMN_NAME = 'block_number'

@@ -3130,7 +3130,7 @@ CREATE TABLE `units` (
   `property_id` int UNSIGNED NOT NULL,
   `unit_number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `unit_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `floor` tinyint DEFAULT NULL,
+  `floor` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `block_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `bedrooms` tinyint UNSIGNED DEFAULT NULL,
   `bathrooms` tinyint UNSIGNED DEFAULT NULL,
