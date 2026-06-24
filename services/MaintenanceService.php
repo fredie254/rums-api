@@ -165,6 +165,54 @@ class MaintenanceService extends BaseService
         return ['success' => true, 'message' => 'Work order updated.'];
     }
 
+    public function approve(int $id, string $note): array
+    {
+        $wo = $this->find($id);
+        if (!$wo) return ['success' => false, 'message' => 'Work order not found.'];
+        if ($wo['status'] !== 'completed') {
+            return ['success' => false, 'message' => 'Only completed requests can be approved. Current status: ' . $wo['status']];
+        }
+
+        $this->execute(
+            "UPDATE maintenance_requests
+             SET status = 'resolved',
+                 notes  = CONCAT(COALESCE(notes,''), IF(notes IS NOT NULL AND notes != '','\n',''), ?),
+                 updated_at = NOW()
+             WHERE id = ?",
+            ['[TENANT APPROVED] ' . $note, $id]
+        );
+
+        $this->logActivity($id, 'approved', 'completed', 'resolved',
+            'Tenant approved completion. Note: ' . substr($note, 0, 300));
+
+        return ['success' => true, 'message' => 'Request approved and marked as resolved.'];
+    }
+
+    public function reopen(int $id, string $note): array
+    {
+        $wo = $this->find($id);
+        if (!$wo) return ['success' => false, 'message' => 'Work order not found.'];
+        if (!in_array($wo['status'], ['completed', 'resolved'], true)) {
+            return ['success' => false, 'message' => 'Only completed or resolved requests can be reopened.'];
+        }
+
+        $prevStatus = $wo['status'];
+        $this->execute(
+            "UPDATE maintenance_requests
+             SET status = 'open',
+                 work_completed = NULL,
+                 notes = CONCAT(COALESCE(notes,''), IF(notes IS NOT NULL AND notes != '','\n',''), ?),
+                 updated_at = NOW()
+             WHERE id = ?",
+            ['[REOPENED] ' . $note, $id]
+        );
+
+        $this->logActivity($id, 'reopened', $prevStatus, 'open',
+            'Reopened by tenant. Reason: ' . substr($note, 0, 300));
+
+        return ['success' => true, 'message' => 'Request reopened successfully.'];
+    }
+
     public function getLogs(int $id): array
     {
         return $this->fetchAll(
