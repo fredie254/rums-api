@@ -114,7 +114,13 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
             $filters['tenant_id'] = $t ? (int)$t['id'] : 0;
         }
 
-        ApiResponse::paginated($svc->list($filters, Router::page(), Router::perPage()));
+        try {
+            $result = $svc->list($filters, Router::page(), Router::perPage());
+        } catch (Throwable $e) {
+            error_log('[Maintenance] list() failed: ' . $e->getMessage());
+            ApiResponse::serverError('Failed to load maintenance requests.');
+        }
+        ApiResponse::paginated($result);
     });
 
     $router->post('maintenance', function () use ($svc, $db, $inApp, $assignmentEmail) {
