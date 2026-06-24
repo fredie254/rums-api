@@ -202,6 +202,43 @@ WHERE `id_number` IS NOT NULL
   AND `id_number` != ''
   AND `id_number_hash` IS NULL;
 
+-- ── Units table: add columns used by the frontend form ────────
+DROP PROCEDURE IF EXISTS _rums_units_migrate;
+DELIMITER $$
+CREATE PROCEDURE _rums_units_migrate()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units' AND COLUMN_NAME = 'block_number'
+    ) THEN
+        ALTER TABLE `units` ADD COLUMN `block_number` VARCHAR(30) DEFAULT NULL AFTER `floor`;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units' AND COLUMN_NAME = 'water_included'
+    ) THEN
+        ALTER TABLE `units` ADD COLUMN `water_included` TINYINT(1) NOT NULL DEFAULT 0 AFTER `deposit_amount`;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units' AND COLUMN_NAME = 'electricity_included'
+    ) THEN
+        ALTER TABLE `units` ADD COLUMN `electricity_included` TINYINT(1) NOT NULL DEFAULT 0 AFTER `water_included`;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units' AND COLUMN_NAME = 'utility_charge'
+    ) THEN
+        ALTER TABLE `units` ADD COLUMN `utility_charge` DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER `electricity_included`;
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_units_migrate();
+DROP PROCEDURE IF EXISTS _rums_units_migrate;
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);

@@ -87,7 +87,11 @@ function registerUnitRoutes(Router $router, PDO $db): void
 
         $cols   = implode(', ', array_keys($allowed));
         $places = implode(', ', array_fill(0, count($allowed), '?'));
-        $db->prepare("INSERT INTO units ($cols) VALUES ($places)")->execute(array_values($allowed));
+        try {
+            $db->prepare("INSERT INTO units ($cols) VALUES ($places)")->execute(array_values($allowed));
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to create unit.', $e);
+        }
 
         ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Unit created.');
     });
@@ -169,7 +173,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
     $router->patch('units/{id}/status', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'write:units');
         $status = Router::body()['status'] ?? '';
-        $valid  = ['available', 'occupied', 'maintenance', 'inactive', 'reserved'];
+        $valid  = ['available', 'occupied', 'maintenance', 'inactive'];
 
         if (!in_array($status, $valid, true)) {
             ApiResponse::badRequest('status must be one of: ' . implode(', ', $valid));
