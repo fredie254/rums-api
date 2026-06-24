@@ -31,24 +31,28 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $countStmt = $db->prepare("SELECT COUNT(*) FROM security_incidents si $w");
-        $countStmt->execute($params);
-        $total = (int)$countStmt->fetchColumn();
+        try {
+            $countStmt = $db->prepare("SELECT COUNT(*) FROM security_incidents si $w");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
 
-        $stmt = $db->prepare(
-            "SELECT si.*, p.name AS property_name, u.unit_number, lu.name AS logged_by_name
-             FROM security_incidents si
-             LEFT JOIN properties p ON p.id = si.property_id
-             LEFT JOIN units u      ON u.id = si.unit_id
-             LEFT JOIN users lu     ON lu.id = si.logged_by
-             $w
-             ORDER BY FIELD(si.severity,'critical','high','medium','low'), si.incident_date DESC
-             LIMIT ? OFFSET ?"
-        );
-        foreach ($params as $k => $v) $stmt->bindValue($k + 1, $v);
-        $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(count($params) + 2, $offset,  PDO::PARAM_INT);
-        $stmt->execute();
+            $stmt = $db->prepare(
+                "SELECT si.*, p.name AS property_name, u.unit_number, lu.name AS logged_by_name
+                 FROM security_incidents si
+                 LEFT JOIN properties p ON p.id = si.property_id
+                 LEFT JOIN units u      ON u.id = si.unit_id
+                 LEFT JOIN users lu     ON lu.id = si.logged_by
+                 $w
+                 ORDER BY FIELD(si.severity,'critical','high','medium','low'), si.incident_date DESC
+                 LIMIT ? OFFSET ?"
+            );
+            foreach ($params as $k => $v) $stmt->bindValue($k + 1, $v);
+            $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
+            $stmt->bindValue(count($params) + 2, $offset,  PDO::PARAM_INT);
+            $stmt->execute();
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to load incidents.', $e);
+        }
 
         ApiResponse::ok($stmt->fetchAll(), '', [
             'total'        => $total,
@@ -60,16 +64,20 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
 
     $router->get('security-incidents/{id}', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
-        $stmt = $db->prepare(
-            "SELECT si.*, p.name AS property_name, u.unit_number, lu.name AS logged_by_name
-             FROM security_incidents si
-             LEFT JOIN properties p ON p.id = si.property_id
-             LEFT JOIN units u      ON u.id = si.unit_id
-             LEFT JOIN users lu     ON lu.id = si.logged_by
-             WHERE si.id = ?"
-        );
-        $stmt->execute([(int)$id]);
-        $row = $stmt->fetch();
+        try {
+            $stmt = $db->prepare(
+                "SELECT si.*, p.name AS property_name, u.unit_number, lu.name AS logged_by_name
+                 FROM security_incidents si
+                 LEFT JOIN properties p ON p.id = si.property_id
+                 LEFT JOIN units u      ON u.id = si.unit_id
+                 LEFT JOIN users lu     ON lu.id = si.logged_by
+                 WHERE si.id = ?"
+            );
+            $stmt->execute([(int)$id]);
+            $row = $stmt->fetch();
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to load incident.', $e);
+        }
         $row ? ApiResponse::ok($row) : ApiResponse::notFound('Incident not found.');
     });
 
@@ -116,20 +124,28 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
         $allowed = array_intersect_key($body, array_flip(['action_taken', 'police_ref', 'persons_involved']));
         if (!$allowed) ApiResponse::badRequest('No valid fields to update.');
         $set = implode(', ', array_map(fn($k) => "$k = ?", array_keys($allowed)));
-        $db->prepare("UPDATE security_incidents SET $set WHERE id = ?")
-           ->execute([...array_values($allowed), (int)$id]);
+        try {
+            $db->prepare("UPDATE security_incidents SET $set WHERE id = ?")
+               ->execute([...array_values($allowed), (int)$id]);
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to update incident.', $e);
+        }
         ApiResponse::ok(null, 'Incident updated.');
     });
 
     $router->post('security-incidents/{id}/resolve', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $notes = Router::body()['resolution_notes'] ?? null;
-        $db->prepare(
-            "UPDATE security_incidents
-             SET resolved=1, resolved_at=NOW(),
-                 action_taken = CONCAT(COALESCE(action_taken,''), IF(action_taken IS NOT NULL AND action_taken != '','\n',''), COALESCE(?,''))
-             WHERE id=?"
-        )->execute([$notes, (int)$id]);
+        try {
+            $db->prepare(
+                "UPDATE security_incidents
+                 SET resolved=1, resolved_at=NOW(),
+                     action_taken = CONCAT(COALESCE(action_taken,''), IF(action_taken IS NOT NULL AND action_taken != '','\n',''), COALESCE(?,''))
+                 WHERE id=?"
+            )->execute([$notes, (int)$id]);
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to resolve incident.', $e);
+        }
         ApiResponse::ok(null, 'Incident resolved.');
     });
 }

@@ -314,6 +314,91 @@ WHERE u.role = 'tenant'
   AND at.revoked = 0
   AND at.scopes NOT LIKE '%read:maintenance%';
 
+-- ── Security incidents table ────────────────────────────────
+-- Created here for deployments whose schema pre-dates this feature.
+DROP PROCEDURE IF EXISTS _rums_security_incidents_create;
+DELIMITER $$
+CREATE PROCEDURE _rums_security_incidents_create()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'security_incidents'
+    ) THEN
+        CREATE TABLE `security_incidents` (
+            `id`               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+            `property_id`      INT UNSIGNED  DEFAULT NULL,
+            `unit_id`          INT UNSIGNED  DEFAULT NULL,
+            `incident_type`    VARCHAR(80)   NOT NULL DEFAULT 'other',
+            `severity`         ENUM('critical','high','medium','low') NOT NULL DEFAULT 'medium',
+            `incident_date`    DATETIME      NOT NULL,
+            `description`      TEXT          NOT NULL,
+            `persons_involved` TEXT          DEFAULT NULL,
+            `action_taken`     TEXT          DEFAULT NULL,
+            `police_ref`       VARCHAR(80)   DEFAULT NULL,
+            `resolved`         TINYINT(1)    NOT NULL DEFAULT 0,
+            `resolved_at`      DATETIME      DEFAULT NULL,
+            `logged_by`        INT UNSIGNED  DEFAULT NULL,
+            `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_si_incident_date` (`incident_date`),
+            KEY `idx_si_severity`      (`severity`),
+            CONSTRAINT `fk_si_logged_by` FOREIGN KEY (`logged_by`)  REFERENCES `users`       (`id`) ON DELETE SET NULL,
+            CONSTRAINT `fk_si_property`  FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
+            CONSTRAINT `fk_si_unit`      FOREIGN KEY (`unit_id`)     REFERENCES `units`       (`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_security_incidents_create();
+DROP PROCEDURE IF EXISTS _rums_security_incidents_create;
+
+-- ── Security: patch token scopes (add read:security_incidents) ─
+-- Security role tokens issued before this migration lack explicit incident scopes.
+-- The endpoint checks read:properties which security already has — no patch needed.
+
+-- ── Visitor log table ────────────────────────────────────────
+-- Created here for deployments whose schema pre-dates this feature.
+DROP PROCEDURE IF EXISTS _rums_visitor_logs_create;
+DELIMITER $$
+CREATE PROCEDURE _rums_visitor_logs_create()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'visitor_logs'
+    ) THEN
+        CREATE TABLE `visitor_logs` (
+            `id`               INT UNSIGNED   NOT NULL AUTO_INCREMENT,
+            `property_id`      INT UNSIGNED   DEFAULT NULL,
+            `unit_id`          INT UNSIGNED   DEFAULT NULL,
+            `tenant_id`        INT UNSIGNED   DEFAULT NULL,
+            `visitor_name`     VARCHAR(150)   NOT NULL,
+            `visitor_phone`    VARCHAR(30)    DEFAULT NULL,
+            `visitor_id_no`    VARCHAR(50)    DEFAULT NULL,
+            `visitor_id_type`  VARCHAR(20)    NOT NULL DEFAULT 'national_id',
+            `vehicle_reg`      VARCHAR(20)    DEFAULT NULL,
+            `purpose`          VARCHAR(200)   NOT NULL DEFAULT '',
+            `host_name`        VARCHAR(100)   DEFAULT NULL,
+            `check_in`         DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `check_out`        DATETIME       DEFAULT NULL,
+            `badge_no`         VARCHAR(20)    DEFAULT NULL,
+            `notes`            TEXT           DEFAULT NULL,
+            `status`           ENUM('in','out','overstay') NOT NULL DEFAULT 'in',
+            `logged_by`        INT UNSIGNED   DEFAULT NULL,
+            `updated_at`       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            `created_at`       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_visitor_check_in` (`check_in`),
+            CONSTRAINT `fk_visitor_logged_by` FOREIGN KEY (`logged_by`)    REFERENCES `users`       (`id`) ON DELETE SET NULL,
+            CONSTRAINT `fk_visitor_property`  FOREIGN KEY (`property_id`)  REFERENCES `properties`  (`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_visitor_logs_create();
+DROP PROCEDURE IF EXISTS _rums_visitor_logs_create;
+
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);
