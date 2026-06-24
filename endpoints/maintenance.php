@@ -166,9 +166,32 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
         ApiResponse::ok(null, 'Work order completed.');
     });
 
+    $router->delete('maintenance/{id}', function (string $id) use ($svc, $db) {
+        ApiAuth::requireRole($db, 'admin', 'manager');
+        $wo = $svc->find((int)$id);
+        if (!$wo) ApiResponse::notFound('Work order not found.');
+
+        if (in_array($wo['status'], ['in_progress'], true)) {
+            ApiResponse::unprocessable('Cannot delete a work order that is currently in progress. Change status first.');
+        }
+
+        try {
+            $db->prepare("DELETE FROM maintenance_requests WHERE id = ?")->execute([(int)$id]);
+        } catch (Throwable $e) {
+            ApiResponse::serverError('Failed to delete work order.', $e);
+        }
+
+        ApiResponse::ok(null, 'Work order deleted.');
+    });
+
     $router->get('maintenance/{id}/logs', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:maintenance');
-        $logs = $svc->getLogs((int)$id);
+        try {
+            $logs = $svc->getLogs((int)$id);
+        } catch (Throwable $e) {
+            // Table may not exist yet (migration pending) — return empty gracefully
+            $logs = [];
+        }
         ApiResponse::ok($logs);
     });
 }

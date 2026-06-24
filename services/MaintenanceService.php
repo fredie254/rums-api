@@ -113,6 +113,7 @@ class MaintenanceService extends BaseService
         if (!$current) return ['success' => false, 'message' => 'Work order not found.'];
 
         $allowed = $this->only($data, [
+            'issue_title', 'description', 'category',
             'status', 'priority', 'assigned_to', 'notes',
             'work_started', 'work_completed', 'labour_hours',
             'materials_cost', 'labour_cost', 'contractor_name', 'contractor_phone',
