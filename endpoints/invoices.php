@@ -21,43 +21,53 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $month  = (int)($body['month']       ?? date('n'));
         $propId = (int)($body['property_id'] ?? 0);
 
-        $propFilter = $propId ? "AND u.property_id = $propId" : '';
+        // Count total active leases for the response summary (2 queries total
+        // instead of the previous 1 + N duplicate-check queries).
+        $countParams = $propId ? [$propId] : [];
+        $countFilter = $propId ? 'AND u.property_id = ?' : '';
+        $totalStmt   = $db->prepare(
+            "SELECT COUNT(*) FROM leases l JOIN units u ON u.id = l.unit_id
+             WHERE l.status = 'active' $countFilter"
+        );
+        $totalStmt->execute($countParams);
+        $totalLeases = (int)$totalStmt->fetchColumn();
 
-        $leases = $db->query(
+        // Fetch only leases that do NOT yet have an invoice for this period.
+        // A single NOT EXISTS subquery replaces the previous N per-lease COUNT queries.
+        $leasesParams = [$year, $month];
+        if ($propId) $leasesParams[] = $propId;
+        $leasesStmt = $db->prepare(
             "SELECT l.id, l.tenant_id, l.monthly_rent, l.payment_day, l.grace_period_days,
                     COALESCE(u.utility_charge, 0) AS utility_charge
              FROM leases l JOIN units u ON u.id = l.unit_id
-             WHERE l.status = 'active' $propFilter"
-        )->fetchAll();
+             WHERE l.status = 'active'
+               AND NOT EXISTS (
+                   SELECT 1 FROM invoices i2
+                   WHERE i2.lease_id   = l.id
+                     AND i2.period_year  = ?
+                     AND i2.period_month = ?
+               ) $countFilter"
+        );
+        $leasesStmt->execute($leasesParams);
+        $leases = $leasesStmt->fetchAll();
 
-        $created = 0;
-        $skipped = 0;
-
-        $invDateStr = sprintf('%04d-%02d-01', $year, $month);
+        $skipped     = $totalLeases - count($leases);
+        $created     = 0;
+        $invDateStr  = sprintf('%04d-%02d-01', $year, $month);
         $daysInMonth = (int)date('t', strtotime($invDateStr));
 
         foreach ($leases as $lease) {
-            // Skip if invoice already exists for this lease + period
-            $dup = $db->prepare(
-                "SELECT COUNT(*) FROM invoices
-                 WHERE lease_id = ? AND period_year = ? AND period_month = ?"
-            );
-            $dup->execute([$lease['id'], $year, $month]);
-            if ($dup->fetchColumn() > 0) { $skipped++; continue; }
-
             // due_date = payment_day of the invoice month (clamped to last day)
             $payDay  = min((int)$lease['payment_day'], $daysInMonth);
             $dueDate = sprintf('%04d-%02d-%02d', $year, $month, $payDay);
-
-            $utility = (float)$lease['utility_charge'];
             $rent    = (float)$lease['monthly_rent'];
+            $utility = (float)$lease['utility_charge'];
             $total   = round($rent + $utility, 2);
 
-            $invNum = 'INV-' . $year . '-' . str_pad(
-                (int)$db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM invoices")->fetchColumn(),
-                6, '0', STR_PAD_LEFT
-            );
-
+            // Insert with a random placeholder so the NOT NULL + UNIQUE constraint
+            // is satisfied. The real formatted number is written immediately after
+            // using the guaranteed-unique auto-increment id — no SELECT MAX()+1 race.
+            $placeholder = 'PENDING-' . bin2hex(random_bytes(8));
             $db->prepare(
                 "INSERT INTO invoices
                     (lease_id, tenant_id, invoice_number, invoice_date, due_date,
@@ -65,18 +75,20 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
                      period_month, period_year, status)
                  VALUES (?,?,?,?,?,?,?,?,0,?,?,'unpaid')"
             )->execute([
-                $lease['id'], $lease['tenant_id'], $invNum,
-                $invDateStr, $dueDate,
-                $rent, $utility, $total,
-                $month, $year,
+                $lease['id'], $lease['tenant_id'], $placeholder,
+                $invDateStr, $dueDate, $rent, $utility, $total, $month, $year,
             ]);
+            $newId  = (int)$db->lastInsertId();
+            $invNum = sprintf('INV-%04d-%06d', $year, $newId);
+            $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")
+               ->execute([$invNum, $newId]);
             $created++;
         }
 
         ApiResponse::ok([
             'created'      => $created,
             'skipped'      => $skipped,
-            'total_leases' => count($leases),
+            'total_leases' => $totalLeases,
         ], "Bulk generation: $created created, $skipped skipped.");
     });
 
@@ -113,13 +125,8 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $periodY  = Router::intParam('period_year');
         $periodM  = Router::intParam('period_month');
 
-        $user = ApiAuth::user();
-        if ($user['role'] === 'tenant') {
-            $row = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
-            $row->execute([$user['id']]);
-            $t        = $row->fetch();
-            $tenantId = $t ? (int)$t['id'] : 0;
-        }
+        $tid = ApiAuth::tenantId($db);
+        if ($tid !== null) $tenantId = $tid;
 
         if ($status === 'outstanding') {
             $where[] = "i.status IN ('unpaid','partial','overdue')";
@@ -188,17 +195,13 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $lease = $l->fetch();
         if (!$lease) ApiResponse::badRequest('Lease not found.');
 
-        $invNum = 'INV-' . date('Y') . '-' . str_pad(
-            (int)$db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM invoices")->fetchColumn(),
-            6, '0', STR_PAD_LEFT
-        );
-
         $allowed = array_intersect_key($body, array_flip([
             'lease_id', 'invoice_date', 'due_date', 'total_amount',
             'rent_amount', 'utility_amount', 'penalty_amount', 'discount_amount',
             'period_month', 'period_year', 'notes',
         ]));
-        $allowed['invoice_number'] = $invNum;
+        // Placeholder satisfies NOT NULL + UNIQUE; real number written after insert.
+        $allowed['invoice_number'] = 'PENDING-' . bin2hex(random_bytes(8));
         $allowed['tenant_id']      = $lease['tenant_id'];
         $allowed['status']         = 'unpaid';
         $allowed['amount_paid']    = 0;
@@ -206,7 +209,10 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $cols   = implode(', ', array_keys($allowed));
         $places = implode(', ', array_fill(0, count($allowed), '?'));
         $db->prepare("INSERT INTO invoices ($cols) VALUES ($places)")->execute(array_values($allowed));
-        $newId = (int)$db->lastInsertId();
+        $newId  = (int)$db->lastInsertId();
+        $invNum = sprintf('INV-%04d-%06d', (int)date('Y'), $newId);
+        $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")
+           ->execute([$invNum, $newId]);
 
         ApiResponse::created(['id' => $newId, 'invoice_number' => $invNum], 'Invoice created.');
     });

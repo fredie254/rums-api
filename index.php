@@ -98,6 +98,10 @@ $router->get('health', function () use ($db) {
     ], $status === 'ok' ? 'System healthy.' : 'Degraded mode — database unreachable.');
 });
 
+// Rate-limit every route including login (falls back to IP for unauthenticated requests).
+// Must be registered before auth routes so the login endpoint is covered.
+$router->guard(fn() => ApiAuth::rateLimit($db));
+
 // ── Auth (login is public; others require a token internally) ─
 require_once __DIR__ . '/endpoints/auth.php';
 registerAuthRoutes($router, $db);
@@ -110,7 +114,6 @@ registerMpesaPublicRoutes($router, $db);
 // PROTECTED — all routes below require a valid Bearer token
 // ────────────────────────────────────────────────────────────
 $router->guard(fn() => ApiAuth::require($db));
-$router->guard(fn() => ApiAuth::rateLimit($db));
 
 // ── Properties ────────────────────────────────────────────────
 require_once __DIR__ . '/endpoints/properties.php';

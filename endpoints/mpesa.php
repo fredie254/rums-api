@@ -10,16 +10,22 @@ require_once __DIR__ . '/../services/MpesaService.php';
 
 /**
  * Read M-Pesa settings from the settings table.
- * Returns a config array for MpesaService constructor.
+ * Result is cached in APCu for 5 minutes — config changes rarely.
  */
 function mpesaSettings(PDO $db): array
 {
+    $cacheKey = 'rums_mpesa_settings';
+    if (function_exists('apcu_fetch')) {
+        $cached = apcu_fetch($cacheKey, $hit);
+        if ($hit) return $cached;
+    }
+
     $rows = $db->query(
         "SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'mpesa_%'"
     )->fetchAll();
     $cfg = array_column($rows, 'setting_value', 'setting_key');
 
-    return [
+    $settings = [
         'consumer_key'    => $cfg['mpesa_consumer_key']    ?? '',
         'consumer_secret' => $cfg['mpesa_consumer_secret'] ?? '',
         'shortcode'       => $cfg['mpesa_shortcode']       ?? '',
@@ -27,6 +33,12 @@ function mpesaSettings(PDO $db): array
         'env'             => $cfg['mpesa_env']             ?? 'sandbox',
         'callback_url'    => $cfg['mpesa_callback_url']    ?? '',
     ];
+
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, $settings, 300); // 5 minutes
+    }
+
+    return $settings;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -35,6 +47,28 @@ function mpesaSettings(PDO $db): array
 function registerMpesaPublicRoutes(Router $router, PDO $db): void
 {
     $router->post('mpesa/callback', function () use ($db) {
+        // ── IP allowlist — only accept callbacks from Safaricom's documented ranges ──
+        // In non-production environments this check is skipped to allow local testing.
+        if (env('APP_ENV', 'production') === 'production') {
+            $safaricomRanges = ['196.201.214.0/24', '196.201.213.0/24'];
+            $remoteIp        = $_SERVER['REMOTE_ADDR'] ?? '';
+            $ipAllowed       = false;
+            foreach ($safaricomRanges as $cidr) {
+                [$net, $prefix] = explode('/', $cidr);
+                $mask = -1 << (32 - (int)$prefix);
+                if ((ip2long($remoteIp) & $mask) === (ip2long($net) & $mask)) {
+                    $ipAllowed = true;
+                    break;
+                }
+            }
+            if (!$ipAllowed) {
+                error_log('[M-Pesa Callback] Rejected — unauthorized source IP: ' . $remoteIp);
+                http_response_code(403);
+                echo json_encode(['ResultCode' => 1, 'ResultDesc' => 'Unauthorized source']);
+                exit;
+            }
+        }
+
         $raw = file_get_contents('php://input');
         error_log('[M-Pesa Callback] ' . date('Y-m-d H:i:s') . ' | ' . $raw);
 
@@ -62,55 +96,83 @@ function registerMpesaPublicRoutes(Router $router, PDO $db): void
             $transaction = $stmt->fetch();
 
             if ($transaction) {
-                if ($result === 0) {
-                    // Successful payment
-                    $items   = $body['CallbackMetadata']['Item'] ?? [];
-                    $meta    = array_column($items, 'Value', 'Name');
-                    $receipt = $meta['MpesaReceiptNumber'] ?? '';
-                    $amount  = (float)($meta['Amount'] ?? $transaction['amount']);
+                // Wrap all DB writes in a transaction so partial failures leave
+                // no inconsistent state (e.g. mpesa_transactions updated but
+                // payments or invoices not yet updated).
+                $db->beginTransaction();
+                try {
+                    if ($result === 0) {
+                        // ── Successful payment ────────────────────────────
+                        $items   = $body['CallbackMetadata']['Item'] ?? [];
+                        $meta    = array_column($items, 'Value', 'Name');
+                        $receipt = $meta['MpesaReceiptNumber'] ?? '';
+                        $amount  = (float)($meta['Amount'] ?? $transaction['amount']);
 
-                    $db->prepare(
-                        "UPDATE mpesa_transactions
-                         SET status='completed', mpesa_receipt=?, result_code=0, result_desc=?, raw_response=?
-                         WHERE checkout_request_id=?"
-                    )->execute([$receipt, $desc, $raw, $checkout]);
-
-                    if ($transaction['payment_id']) {
                         $db->prepare(
-                            "UPDATE payments SET status='completed', mpesa_receipt=?, amount=? WHERE id=?"
-                        )->execute([$receipt, $amount, $transaction['payment_id']]);
+                            "UPDATE mpesa_transactions
+                             SET status='completed', mpesa_receipt=?, result_code=0, result_desc=?, raw_response=?
+                             WHERE checkout_request_id=?"
+                        )->execute([$receipt, $desc, $raw, $checkout]);
 
-                        $pStmt = $db->prepare("SELECT invoice_id FROM payments WHERE id=?");
-                        $pStmt->execute([$transaction['payment_id']]);
-                        $pay = $pStmt->fetch();
-                        if ($pay && $pay['invoice_id']) {
+                        if ($transaction['payment_id']) {
                             $db->prepare(
-                                "UPDATE invoices
-                                 SET amount_paid = amount_paid + ?,
-                                     status = CASE WHEN amount_paid + ? >= total_amount THEN 'paid' ELSE 'partial' END
-                                 WHERE id=?"
-                            )->execute([$amount, $amount, $pay['invoice_id']]);
+                                "UPDATE payments SET status='completed', mpesa_receipt=?, amount=? WHERE id=?"
+                            )->execute([$receipt, $amount, $transaction['payment_id']]);
+
+                            $pStmt = $db->prepare("SELECT invoice_id FROM payments WHERE id=?");
+                            $pStmt->execute([$transaction['payment_id']]);
+                            $pay = $pStmt->fetch();
+
+                            if ($pay && $pay['invoice_id']) {
+                                // Recompute from the SUM of all completed payments — idempotent
+                                // if Safaricom retries the callback. Never use amount_paid + ?
+                                // because double-delivery would over-credit the invoice.
+                                $invRow = $db->prepare("SELECT total_amount FROM invoices WHERE id=?");
+                                $invRow->execute([$pay['invoice_id']]);
+                                $invTotal = (float)($invRow->fetchColumn() ?: 0);
+
+                                $sumRow = $db->prepare(
+                                    "SELECT COALESCE(SUM(amount),0) FROM payments
+                                     WHERE invoice_id=? AND status='completed'"
+                                );
+                                $sumRow->execute([$pay['invoice_id']]);
+                                $totalPaid = (float)$sumRow->fetchColumn();
+
+                                $invStatus = match (true) {
+                                    $totalPaid <= 0           => 'unpaid',
+                                    $totalPaid >= $invTotal   => 'paid',
+                                    default                   => 'partial',
+                                };
+                                $db->prepare(
+                                    "UPDATE invoices SET amount_paid=?, status=? WHERE id=?"
+                                )->execute([$totalPaid, $invStatus, $pay['invoice_id']]);
+                            }
+                        }
+                    } else {
+                        // ── Failed payment ────────────────────────────────
+                        $db->prepare(
+                            "UPDATE mpesa_transactions
+                             SET status='failed', result_code=?, result_desc=?, raw_response=?
+                             WHERE checkout_request_id=?"
+                        )->execute([$result, $desc, $raw, $checkout]);
+
+                        if ($transaction['payment_id']) {
+                            $db->prepare("UPDATE payments SET status='failed' WHERE id=?")
+                               ->execute([$transaction['payment_id']]);
                         }
                     }
-                } else {
-                    // Failed payment
-                    $db->prepare(
-                        "UPDATE mpesa_transactions
-                         SET status='failed', result_code=?, result_desc=?, raw_response=?
-                         WHERE checkout_request_id=?"
-                    )->execute([$result, $desc, $raw, $checkout]);
 
-                    if ($transaction['payment_id']) {
-                        $db->prepare("UPDATE payments SET status='failed' WHERE id=?")
-                           ->execute([$transaction['payment_id']]);
-                    }
+                    $db->commit();
+                } catch (Throwable $e) {
+                    $db->rollBack();
+                    throw $e;
                 }
             }
         } catch (Throwable $e) {
             error_log('[M-Pesa Callback Error] ' . $e->getMessage());
         }
 
-        // Always respond with success to Safaricom
+        // Always acknowledge to Safaricom — non-200 or error JSON causes retries.
         echo json_encode(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
         exit;
     });

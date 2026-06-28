@@ -25,7 +25,6 @@ function registerPaymentRoutes(Router $router, PDO $db): void
 
     $router->get('payments', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:payments');
-        $user    = ApiAuth::user();
         $filters = [
             'tenant_id'   => Router::intParam('tenant_id'),
             'lease_id'    => Router::intParam('lease_id'),
@@ -40,12 +39,8 @@ function registerPaymentRoutes(Router $router, PDO $db): void
             'no_invoice'  => Router::strParam('no_invoice') === '1' ? 1 : 0,
         ];
 
-        if ($user['role'] === 'tenant') {
-            $row = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
-            $row->execute([$user['id']]);
-            $t = $row->fetch();
-            $filters['tenant_id'] = $t ? (int)$t['id'] : 0;
-        }
+        $tid = ApiAuth::tenantId($db);
+        if ($tid !== null) $filters['tenant_id'] = $tid;
 
         ApiResponse::paginated($svc->list($filters, Router::page(), Router::perPage()));
     });
@@ -64,7 +59,6 @@ function registerPaymentRoutes(Router $router, PDO $db): void
     // ── Export CSV ────────────────────────────────────────────────
     $router->get('payments/export', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:payments');
-        $user    = ApiAuth::user();
         $filters = [
             'tenant_id'   => Router::intParam('tenant_id'),
             'lease_id'    => Router::intParam('lease_id'),
@@ -76,12 +70,8 @@ function registerPaymentRoutes(Router $router, PDO $db): void
             'date_to'     => Router::strParam('date_to'),
         ];
 
-        if ($user['role'] === 'tenant') {
-            $row = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
-            $row->execute([$user['id']]);
-            $t = $row->fetch();
-            $filters['tenant_id'] = $t ? (int)$t['id'] : 0;
-        }
+        $tid = ApiAuth::tenantId($db);
+        if ($tid !== null) $filters['tenant_id'] = $tid;
 
         $result = $svc->list($filters, 1, 5000);
         $rows   = $result['data'] ?? [];
@@ -118,7 +108,7 @@ function registerPaymentRoutes(Router $router, PDO $db): void
     });
 
     // ── Reverse payment ───────────────────────────────────────────
-    $router->post('payments/{id}/reverse', function (string $id) use ($db) {
+    $router->post('payments/{id}/reverse', function (string $id) use ($db, $svc) {
         ApiAuth::requireRole($db, 'admin', 'manager');
 
         $stmt = $db->prepare("SELECT * FROM payments WHERE id = ?");
@@ -135,24 +125,11 @@ function registerPaymentRoutes(Router $router, PDO $db): void
             $db->prepare("UPDATE payments SET status='reversed' WHERE id=?")
                ->execute([(int)$id]);
 
+            // After marking the payment reversed, recompute the invoice status
+            // from the SUM of remaining completed payments. reconcileInvoice()
+            // is the single authoritative implementation — no inline copy here.
             if ($pay['invoice_id']) {
-                $paid  = (float)$db->prepare(
-                    "SELECT COALESCE(SUM(amount),0) FROM payments WHERE invoice_id=? AND status='completed'"
-                )->execute([$pay['invoice_id']]) ? $db->query(
-                    "SELECT COALESCE(SUM(amount),0) FROM payments WHERE invoice_id={$pay['invoice_id']} AND status='completed'"
-                )->fetchColumn() : 0;
-
-                $inv  = $db->prepare("SELECT total_amount FROM invoices WHERE id=?");
-                $inv->execute([$pay['invoice_id']]);
-                $total = (float)($inv->fetchColumn() ?: 0);
-
-                $status = match(true) {
-                    $paid <= 0      => 'unpaid',
-                    $paid >= $total => 'paid',
-                    default         => 'partial',
-                };
-                $db->prepare("UPDATE invoices SET amount_paid=?, status=? WHERE id=?")
-                   ->execute([$paid, $status, $pay['invoice_id']]);
+                $svc->reconcileInvoice((int)$pay['invoice_id']);
             }
 
             $db->commit();

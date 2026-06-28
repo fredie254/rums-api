@@ -161,21 +161,35 @@ function registerAuthRoutes(Router $router, PDO $db): void
 
     // POST /auth/token — issue named token ────────────────────
     $router->post('auth/token', function () use ($db) {
-        ApiAuth::require($db);
-        $body   = Router::body();
-        $name   = trim($body['name']   ?? 'API Token');
-        $scopes = trim($body['scopes'] ?? '');
-        $ttl    = (int)($body['expires_days'] ?? env('API_TOKEN_EXPIRY_DAYS', 365));
+        $caller    = ApiAuth::require($db);
+        $body      = Router::body();
+        $name      = trim($body['name']      ?? 'API Token');
+        $rawScopes = trim($body['scopes']    ?? '');
+        $ttl       = (int)($body['expires_days'] ?? env('API_TOKEN_EXPIRY_DAYS', 365));
 
-        if (!$scopes) ApiResponse::badRequest('scopes is required.');
+        if (!$rawScopes) ApiResponse::badRequest('scopes is required.');
 
-        $token = ApiAuth::issueToken($db, ApiAuth::userId(), $name, $scopes, $ttl);
+        // Prevent privilege escalation: a non-admin caller cannot issue a token
+        // with scopes that exceed their own. Without this check any tenant could
+        // POST "scopes":"admin" and receive a fully-privileged token.
+        if ($caller['user_role'] !== 'admin') {
+            $callerScopes    = array_filter(array_map('trim', explode(',', $caller['scopes'] ?? '')));
+            $requestedScopes = array_filter(array_map('trim', explode(',', $rawScopes)));
+            $excess          = array_diff($requestedScopes, $callerScopes);
+            if ($excess) {
+                ApiResponse::forbidden(
+                    'Cannot issue scopes beyond your own: ' . implode(', ', $excess)
+                );
+            }
+        }
+
+        $token = ApiAuth::issueToken($db, ApiAuth::userId(), $name, $rawScopes, $ttl);
 
         ApiResponse::created([
             'token'      => $token,
             'token_type' => 'Bearer',
             'name'       => $name,
-            'scopes'     => $scopes,
+            'scopes'     => $rawScopes,
             'expires_in' => $ttl > 0 ? $ttl * 86400 : null,
         ], 'Token issued.');
     });

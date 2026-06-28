@@ -28,9 +28,10 @@ class ApiAuth
                ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
                ?? '';
 
-        $raw = $header && str_starts_with($header, 'Bearer ')
+        // Never accept tokens via URL query string — they appear in server logs and browser history.
+        $raw = ($header && str_starts_with($header, 'Bearer '))
             ? trim(substr($header, 7))
-            : ($_GET['api_token'] ?? '');
+            : '';
 
         if (strlen($raw) < 16) return null;
 
@@ -114,8 +115,10 @@ class ApiAuth
     public static function hasScope(array $token, string $scope): bool
     {
         if (($token['user_role'] ?? '') === 'admin') return true;
-        $scopes = $token['scopes'] ?? '';
-        return str_contains($scopes, 'admin') || str_contains($scopes, $scope);
+        // Use exact token matching on a split list — str_contains() is a substring check
+        // and would falsely pass e.g. "read:main" against a scope of "read:maintenance".
+        $scopeList = array_map('trim', explode(',', $token['scopes'] ?? ''));
+        return in_array('admin', $scopeList, true) || in_array($scope, $scopeList, true);
     }
 
     // ── Accessors ─────────────────────────────────────────────
@@ -124,6 +127,30 @@ class ApiAuth
     public static function user(): ?array      { return self::$currentUser; }
     public static function userId(): ?int      { return self::$currentUser ? (int)self::$currentUser['id'] : null; }
     public static function userRole(): ?string { return self::$currentUser['role'] ?? null; }
+
+    /**
+     * Return the tenants.id for the currently authenticated tenant user.
+     * Result is cached per-request (static variable) — the DB is only hit once
+     * even when multiple endpoints call this within the same request.
+     * Returns null for non-tenant roles.
+     */
+    public static function tenantId(PDO $db): ?int
+    {
+        static $resolved = false;
+        static $tid      = null;
+
+        if ($resolved) return $tid;
+        $resolved = true;
+
+        if (self::userRole() !== 'tenant') return null;
+
+        $stmt = $db->prepare("SELECT id FROM tenants WHERE user_id = ? LIMIT 1");
+        $stmt->execute([self::userId()]);
+        $row = $stmt->fetchColumn();
+        $tid = $row !== false ? (int)$row : null;
+
+        return $tid;
+    }
 
     // ── Rate limiting ─────────────────────────────────────────
 

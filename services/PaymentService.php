@@ -104,7 +104,7 @@ class PaymentService extends BaseService
         return ['success' => true, 'id' => $pay_id, 'payment_ref' => $payment_ref, 'message' => 'Payment recorded.'];
     }
 
-    private function reconcileInvoice(int $invoiceId): void
+    public function reconcileInvoice(int $invoiceId): void
     {
         $inv = $this->fetchOne("SELECT total_amount FROM invoices WHERE id = ?", [$invoiceId]);
         if (!$inv) return;

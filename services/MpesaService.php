@@ -36,7 +36,15 @@ class MpesaService
 
     public function getAccessToken(): string
     {
-        $url = $this->baseUrl() . '/oauth/v1/generate?grant_type=client_credentials';
+        // Cache the token in APCu — Safaricom tokens are valid for 3600 s.
+        // Use a 55-minute TTL so we refresh before expiry with margin to spare.
+        $cacheKey = 'rums_mpesa_tok_' . substr(md5($this->consumer_key . $this->env), 0, 16);
+        if (function_exists('apcu_fetch')) {
+            $cached = apcu_fetch($cacheKey, $hit);
+            if ($hit) return $cached;
+        }
+
+        $url         = $this->baseUrl() . '/oauth/v1/generate?grant_type=client_credentials';
         $credentials = base64_encode($this->consumer_key . ':' . $this->consumer_secret);
 
         $ch = curl_init($url);
@@ -44,7 +52,7 @@ class MpesaService
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER     => ['Authorization: Basic ' . $credentials],
             CURLOPT_TIMEOUT        => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $response = curl_exec($ch);
         $err      = curl_error($ch);
@@ -56,6 +64,11 @@ class MpesaService
         if (empty($data['access_token'])) {
             throw new RuntimeException('Failed to get access token: ' . $response);
         }
+
+        if (function_exists('apcu_store')) {
+            apcu_store($cacheKey, $data['access_token'], 3300); // 55 minutes
+        }
+
         return $data['access_token'];
     }
 
@@ -109,7 +122,7 @@ class MpesaService
                 'Authorization: Bearer ' . $token,
             ],
             CURLOPT_TIMEOUT        => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $response = curl_exec($ch);
         $err      = curl_error($ch);

@@ -131,11 +131,6 @@ class LeaseService extends BaseService
             return ['success' => false, 'message' => 'Unit already has an active lease in that period.'];
         }
 
-        $lease_number = 'LSE-' . date('Y') . '-' . str_pad(
-            (int)$this->fetchColumn("SELECT COALESCE(MAX(id), 0) + 1 FROM leases"),
-            5, '0', STR_PAD_LEFT
-        );
-
         $allowed = $this->only($data, [
             'unit_id', 'tenant_id', 'start_date', 'end_date', 'monthly_rent',
             'deposit_amount', 'deposit_paid_date', 'payment_day', 'grace_period_days',
@@ -143,7 +138,11 @@ class LeaseService extends BaseService
             'lease_type', 'template_id', 'renewed_from_id', 'notice_period_days',
             'escalation_type', 'escalation_rate', 'escalation_frequency', 'next_escalation_date',
         ]);
-        $allowed['lease_number'] = $lease_number;
+        // Placeholder satisfies NOT NULL + UNIQUE; real number is written inside
+        // the transaction once we have the guaranteed-unique auto-increment id.
+        // This replaces the previous SELECT MAX(id)+1 which had a race condition
+        // under concurrent lease creation.
+        $allowed['lease_number'] = 'PENDING-' . bin2hex(random_bytes(8));
         $allowed['status']       = 'active';
 
         // Auto-compute first escalation date when escalation is configured
@@ -166,7 +165,9 @@ class LeaseService extends BaseService
 
         $this->db->beginTransaction();
         try {
-            $id = $this->insert("INSERT INTO leases ($cols) VALUES ($places)", array_values($allowed));
+            $id           = $this->insert("INSERT INTO leases ($cols) VALUES ($places)", array_values($allowed));
+            $lease_number = sprintf('LSE-%04d-%05d', (int)date('Y'), $id);
+            $this->execute("UPDATE leases SET lease_number = ? WHERE id = ?", [$lease_number, $id]);
             $this->execute("UPDATE units SET status = 'occupied' WHERE id = ?", [(int)$data['unit_id']]);
             $this->db->commit();
         } catch (Throwable $e) {
