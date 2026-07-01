@@ -2618,6 +2618,8 @@ CREATE TABLE `invoices` (
   `discount_amount` decimal(12,2) NOT NULL DEFAULT '0.00',
   `total_amount` decimal(12,2) NOT NULL,
   `amount_paid` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `period_month` tinyint UNSIGNED DEFAULT NULL,
+  `period_year` smallint UNSIGNED DEFAULT NULL,
   `status` enum('unpaid','partial','paid','overdue','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unpaid',
   `notes` text COLLATE utf8mb4_unicode_ci,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -2627,8 +2629,8 @@ CREATE TABLE `invoices` (
 -- Dumping data for table `invoices`
 --
 
-INSERT INTO `invoices` (`id`, `invoice_number`, `lease_id`, `tenant_id`, `invoice_date`, `due_date`, `rent_amount`, `utility_amount`, `penalty_amount`, `discount_amount`, `total_amount`, `amount_paid`, `status`, `notes`, `created_at`) VALUES
-(1, 'INV-2026-000001', 1, 1, '2026-06-01', '2026-06-30', 10000.00, 0.00, 0.00, 0.00, 10000.00, 0.00, 'unpaid', NULL, '2026-06-17 10:03:33');
+INSERT INTO `invoices` (`id`, `invoice_number`, `lease_id`, `tenant_id`, `invoice_date`, `due_date`, `rent_amount`, `utility_amount`, `penalty_amount`, `discount_amount`, `total_amount`, `amount_paid`, `period_month`, `period_year`, `status`, `notes`, `created_at`) VALUES
+(1, 'INV-2026-000001', 1, 1, '2026-06-01', '2026-06-30', 10000.00, 0.00, 0.00, 0.00, 10000.00, 0.00, 6, 2026, 'unpaid', NULL, '2026-06-17 10:03:33');
 
 -- --------------------------------------------------------
 
@@ -2658,13 +2660,14 @@ CREATE TABLE `kyc_documents` (
 CREATE TABLE `landlords` (
   `id` int UNSIGNED NOT NULL,
   `user_id` int UNSIGNED NOT NULL,
-  `id_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `id_number` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `id_number_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `company_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `kra_pin` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `kra_pin` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `bank_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `bank_account` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_account` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `bank_branch` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `mpesa_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mpesa_number` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `commission_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
   `notes` text COLLATE utf8mb4_unicode_ci,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -2674,8 +2677,8 @@ CREATE TABLE `landlords` (
 -- Dumping data for table `landlords`
 --
 
-INSERT INTO `landlords` (`id`, `user_id`, `id_number`, `company_name`, `kra_pin`, `bank_name`, `bank_account`, `bank_branch`, `mpesa_number`, `commission_rate`, `notes`, `created_at`) VALUES
-(1, 2, '12345678', NULL, 'P050000000X', 'NCBA', '0100000000001', 'WESTLANDS', '0700000000', 30.00, 'waiganjo appartments', '2026-06-17 06:43:18');
+INSERT INTO `landlords` (`id`, `user_id`, `id_number`, `id_number_hash`, `company_name`, `kra_pin`, `bank_name`, `bank_account`, `bank_branch`, `mpesa_number`, `commission_rate`, `notes`, `created_at`) VALUES
+(1, 2, '12345678', 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f', NULL, 'P050000000X', 'NCBA', '0100000000001', 'WESTLANDS', '0700000000', 30.00, 'waiganjo appartments', '2026-06-17 06:43:18');
 
 -- --------------------------------------------------------
 
@@ -2698,6 +2701,16 @@ CREATE TABLE `leases` (
   `penalty_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
   `terms` text COLLATE utf8mb4_unicode_ci,
   `notes` text COLLATE utf8mb4_unicode_ci,
+  `lease_type` enum('fixed','periodic','month_to_month') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
+  `template_id` int UNSIGNED DEFAULT NULL,
+  `renewed_from_id` int UNSIGNED DEFAULT NULL,
+  `notice_period_days` smallint UNSIGNED NOT NULL DEFAULT '30',
+  `escalation_type` enum('none','fixed','percentage') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `escalation_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `escalation_frequency` enum('annually','semi_annually','quarterly') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'annually',
+  `next_escalation_date` date DEFAULT NULL,
+  `signed_at` datetime DEFAULT NULL,
+  `signed_by` int UNSIGNED DEFAULT NULL,
   `status` enum('active','expired','terminated') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `termination_reason` text COLLATE utf8mb4_unicode_ci,
   `terminated_at` datetime DEFAULT NULL,
@@ -2708,8 +2721,8 @@ CREATE TABLE `leases` (
 -- Dumping data for table `leases`
 --
 
-INSERT INTO `leases` (`id`, `lease_number`, `unit_id`, `tenant_id`, `start_date`, `end_date`, `monthly_rent`, `deposit_amount`, `deposit_paid_date`, `payment_day`, `grace_period_days`, `penalty_rate`, `terms`, `notes`, `status`, `termination_reason`, `terminated_at`, `created_at`) VALUES
-(1, 'LSE-2026-00001', 1, 1, '2026-06-01', '2027-06-16', 10000.00, 12000.00, NULL, 1, 5, 0.00, '', NULL, 'active', NULL, NULL, '2026-06-17 10:03:25');
+INSERT INTO `leases` (`id`, `lease_number`, `unit_id`, `tenant_id`, `start_date`, `end_date`, `monthly_rent`, `deposit_amount`, `deposit_paid_date`, `payment_day`, `grace_period_days`, `penalty_rate`, `terms`, `notes`, `lease_type`, `template_id`, `renewed_from_id`, `notice_period_days`, `escalation_type`, `escalation_rate`, `escalation_frequency`, `next_escalation_date`, `signed_at`, `signed_by`, `status`, `termination_reason`, `terminated_at`, `created_at`) VALUES
+(1, 'LSE-2026-00001', 1, 1, '2026-06-01', '2027-06-16', 10000.00, 12000.00, NULL, 1, 5, 0.00, '', NULL, 'fixed', NULL, NULL, 30, 'none', 0.00, 'annually', NULL, NULL, NULL, 'active', NULL, NULL, '2026-06-17 10:03:25');
 
 -- --------------------------------------------------------
 
@@ -2980,7 +2993,7 @@ CREATE TABLE `payments` (
   `tenant_id` int UNSIGNED NOT NULL,
   `amount` decimal(12,2) NOT NULL,
   `payment_date` date NOT NULL,
-  `payment_method` enum('cash','mpesa','bank','cheque','other') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cash',
+  `payment_method` enum('cash','mpesa','bank','cheque','bank_transfer','card','other') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cash',
   `payment_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'rent',
   `mpesa_transaction_id` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cheque_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -3017,6 +3030,7 @@ CREATE TABLE `properties` (
   `manager_id` int UNSIGNED DEFAULT NULL,
   `description` text COLLATE utf8mb4_unicode_ci,
   `amenities` text COLLATE utf8mb4_unicode_ci,
+  `image` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` enum('active','inactive','deleted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -3025,8 +3039,8 @@ CREATE TABLE `properties` (
 -- Dumping data for table `properties`
 --
 
-INSERT INTO `properties` (`id`, `name`, `property_type`, `address_line1`, `address_line2`, `address_city`, `address_county`, `address_country`, `total_units`, `year_built`, `landlord_id`, `manager_id`, `description`, `amenities`, `status`, `created_at`) VALUES
-(1, 'Waigajo Apartments', 'residential', 'kariko road', NULL, 'nairobi', 'nairobi', 'Kenya', 0, NULL, 1, 1, '5 Storey 60units', NULL, 'active', '2026-06-17 07:09:09');
+INSERT INTO `properties` (`id`, `name`, `property_type`, `address_line1`, `address_line2`, `address_city`, `address_county`, `address_country`, `total_units`, `year_built`, `landlord_id`, `manager_id`, `description`, `amenities`, `image`, `status`, `created_at`) VALUES
+(1, 'Waigajo Apartments', 'residential', 'kariko road', NULL, 'nairobi', 'nairobi', 'Kenya', 0, NULL, 1, 1, '5 Storey 60units', NULL, NULL, 'active', '2026-06-17 07:09:09');
 
 -- --------------------------------------------------------
 
@@ -3117,19 +3131,20 @@ CREATE TABLE `tenants` (
   `first_name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `phone` varchar(512) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `id_number` varchar(512) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id_number` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id_number_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'national_id',
-  `dob` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `dob` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `gender` enum('male','female','other') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `nationality` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'Kenyan',
-  `emergency_contact_name` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `emergency_contact_phone` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `next_of_kin_name` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `next_of_kin_phone` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `occupation` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `employer` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `monthly_income` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `emergency_contact_name` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `emergency_contact_phone` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `next_of_kin_name` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `next_of_kin_phone` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `occupation` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `employer` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `monthly_income` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text COLLATE utf8mb4_unicode_ci,
   `status` enum('active','inactive','blacklisted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -3139,8 +3154,8 @@ CREATE TABLE `tenants` (
 -- Dumping data for table `tenants`
 --
 
-INSERT INTO `tenants` (`id`, `user_id`, `first_name`, `last_name`, `email`, `phone`, `id_number`, `id_type`, `dob`, `gender`, `nationality`, `emergency_contact_name`, `emergency_contact_phone`, `next_of_kin_name`, `next_of_kin_phone`, `occupation`, `employer`, `monthly_income`, `notes`, `status`, `created_at`) VALUES
-(1, 4, 'kiprono', 'john', 'kiprono@rums.co.ke', '0700000000', '30000000', 'national_id', '1998-01-01', 'male', 'Kenyan', 'chebet', '071000000', NULL, NULL, 'Engineer', 'Kenya Pipeline', 100000.00, 'well', 'active', '2026-06-17 10:02:22');
+INSERT INTO `tenants` (`id`, `user_id`, `first_name`, `last_name`, `email`, `phone`, `id_number`, `id_number_hash`, `id_type`, `dob`, `gender`, `nationality`, `emergency_contact_name`, `emergency_contact_phone`, `next_of_kin_name`, `next_of_kin_phone`, `occupation`, `employer`, `monthly_income`, `notes`, `status`, `created_at`) VALUES
+(1, 4, 'kiprono', 'john', 'kiprono@rums.co.ke', '0700000000', '30000000', '07ba9cf15de5746259f54d189412a46c5719ae47925d2ab186c15c6ec9c1be4c', 'national_id', '1998-01-01', 'male', 'Kenyan', 'chebet', '071000000', NULL, NULL, 'Engineer', 'Kenya Pipeline', 100000.00, 'well', 'active', '2026-06-17 10:02:22');
 
 -- --------------------------------------------------------
 
@@ -3163,10 +3178,10 @@ CREATE TABLE `units` (
   `furnished` tinyint(1) NOT NULL DEFAULT '0',
   `water_included` tinyint(1) NOT NULL DEFAULT '0',
   `electricity_included` tinyint(1) NOT NULL DEFAULT '0',
-  `utility_charge` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `utility_charge` decimal(12,2) NOT NULL DEFAULT '0.00',
   `amenities` text COLLATE utf8mb4_unicode_ci,
   `description` text COLLATE utf8mb4_unicode_ci,
-  `status` enum('available','occupied','maintenance','inactive') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'available',
+  `status` enum('available','occupied','maintenance','inactive','reserved') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'available',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -3192,6 +3207,8 @@ CREATE TABLE `users` (
   `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` enum('active','inactive','suspended') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `last_login` datetime DEFAULT NULL,
+  `data_anonymized` tinyint(1) NOT NULL DEFAULT '0',
+  `anonymized_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -3365,7 +3382,8 @@ ALTER TABLE `invoices`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_invoice_number` (`invoice_number`),
   ADD KEY `fk_invoices_lease` (`lease_id`),
-  ADD KEY `fk_invoices_tenant` (`tenant_id`);
+  ADD KEY `fk_invoices_tenant` (`tenant_id`),
+  ADD KEY `idx_invoices_period` (`lease_id`,`period_year`,`period_month`);
 
 --
 -- Indexes for table `kyc_documents`
@@ -3380,7 +3398,7 @@ ALTER TABLE `kyc_documents`
 --
 ALTER TABLE `landlords`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_landlords_id_number` (`id_number`),
+  ADD UNIQUE KEY `uq_landlords_id_number_hash` (`id_number_hash`),
   ADD KEY `fk_landlords_user` (`user_id`);
 
 --
@@ -3390,7 +3408,10 @@ ALTER TABLE `leases`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_lease_number` (`lease_number`),
   ADD KEY `fk_leases_unit` (`unit_id`),
-  ADD KEY `fk_leases_tenant` (`tenant_id`);
+  ADD KEY `fk_leases_tenant` (`tenant_id`),
+  ADD KEY `fk_leases_template` (`template_id`),
+  ADD KEY `fk_leases_renewed_from` (`renewed_from_id`),
+  ADD KEY `fk_leases_signed_by` (`signed_by`);
 
 --
 -- Indexes for table `lease_documents`
@@ -3540,7 +3561,7 @@ ALTER TABLE `settings`
 ALTER TABLE `tenants`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_tenant_email` (`email`),
-  ADD UNIQUE KEY `uq_tenant_id_number` (`id_number`),
+  ADD UNIQUE KEY `uq_tenant_id_number_hash` (`id_number_hash`),
   ADD KEY `fk_tenants_user` (`user_id`);
 
 --
