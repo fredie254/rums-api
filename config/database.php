@@ -35,7 +35,7 @@ function getDB(): PDO
         PDO::ATTR_PERSISTENT         => true,
         // charset= in DSN already sets names; INIT_COMMAND is only needed for
         // collation overrides or session variables.
-        PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'",
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION', time_zone='+03:00'",
     ];
 
     try {
