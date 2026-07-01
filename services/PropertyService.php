@@ -9,13 +9,18 @@ class PropertyService extends BaseService
         $params = [];
 
         if (!empty($filters['search'])) {
-            $where[] = '(p.name LIKE ? OR p.address LIKE ?)';
+            // p.address does not exist — search against address_line1 and address_line2
+            $where[] = '(p.name LIKE ? OR p.address_line1 LIKE ? OR p.address_line2 LIKE ?)';
             $s = '%' . $filters['search'] . '%';
-            $params[] = $s; $params[] = $s;
+            $params[] = $s; $params[] = $s; $params[] = $s;
         }
         if (!empty($filters['status'])) {
             $where[] = 'p.status = ?';
             $params[] = $filters['status'];
+        }
+        if (!empty($filters['property_type'])) {
+            $where[] = 'p.property_type = ?';
+            $params[] = $filters['property_type'];
         }
         if (!empty($filters['landlord_id'])) {
             $where[] = 'p.landlord_id = ?';
@@ -24,10 +29,15 @@ class PropertyService extends BaseService
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $sql = "SELECT p.*,
+        // Explicit column list avoids duplicate `total_units` alias collision with p.*
+        $sql = "SELECT
+            p.id, p.name, p.property_type, p.address_line1, p.address_line2,
+            p.address_city, p.address_county, p.address_country, p.year_built,
+            p.landlord_id, p.manager_id, p.description, p.amenities,
+            p.status, p.created_at,
             u.name AS landlord_name,
-            COUNT(DISTINCT un.id)                                       AS total_units,
-            COUNT(DISTINCT CASE WHEN un.status='occupied' THEN un.id END)  AS occupied_units,
+            COUNT(DISTINCT un.id)                                          AS total_units,
+            COUNT(DISTINCT CASE WHEN un.status='occupied'  THEN un.id END) AS occupied_units,
             COUNT(DISTINCT CASE WHEN un.status='available' THEN un.id END) AS available_units
             FROM properties p
             LEFT JOIN landlords l ON l.id = p.landlord_id
@@ -37,7 +47,7 @@ class PropertyService extends BaseService
             GROUP BY p.id
             ORDER BY p.name";
 
-        $countSql = "SELECT COUNT(*) FROM properties p $w";
+        $countSql = "SELECT COUNT(DISTINCT p.id) FROM properties p $w";
 
         return $this->paginatedQuery($sql, $params, $countSql, $params, $page, $perPage);
     }

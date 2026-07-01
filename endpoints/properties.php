@@ -19,9 +19,10 @@ function registerPropertyRoutes(Router $router, PDO $db): void
         ApiAuth::requireScope($db, 'read:properties');
         ApiResponse::paginated($svc->list(
             filters: [
-                'search'      => Router::strParam('search'),
-                'status'      => Router::strParam('status'),
-                'landlord_id' => Router::intParam('landlord_id'),
+                'search'        => Router::strParam('search'),
+                'status'        => Router::strParam('status'),
+                'property_type' => Router::strParam('type'),
+                'landlord_id'   => Router::intParam('landlord_id'),
             ],
             page:    Router::page(),
             perPage: Router::perPage()
