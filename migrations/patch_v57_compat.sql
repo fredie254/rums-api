@@ -77,7 +77,11 @@ ALTER TABLE `units` MODIFY COLUMN `status`
 -- 003 — Encryption columns (tenants + landlords)
 -- ============================================================
 
--- Widen PII columns to TEXT (idempotent MODIFY)
+-- Drop the plain-text unique index FIRST — MySQL can't maintain a
+-- full-column unique index on a TEXT column without a prefix length.
+CALL _drop_idx('tenants', 'uq_tenant_id_number');
+
+-- Now widen PII columns to TEXT (idempotent MODIFY)
 ALTER TABLE `tenants`
   MODIFY COLUMN `id_number`               TEXT         NOT NULL,
   MODIFY COLUMN `phone`                   TEXT         NOT NULL,
@@ -98,7 +102,6 @@ UPDATE `tenants`
   WHERE `id_number_hash` IS NULL
     AND `id_number` IS NOT NULL AND `id_number` != '';
 
-CALL _drop_idx('tenants', 'uq_tenant_id_number');
 CALL _idx('tenants', 'uq_tenant_id_number_hash', '(`id_number_hash`)');
 
 -- Landlords: drop the plain-text unique index before widening to TEXT
