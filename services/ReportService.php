@@ -418,10 +418,10 @@ class ReportService extends BaseService
         // Collection effectiveness (last 3 months)
         $effectiveness = $this->fetchOne(
             "SELECT
-                SUM(i.total_amount)                              AS total_billed,
-                SUM(COALESCE(i.amount_paid,0))                   AS total_collected,
-                SUM(i.total_amount - COALESCE(i.amount_paid,0)) AS total_outstanding,
-                ROUND(SUM(COALESCE(i.amount_paid,0)) / NULLIF(SUM(i.total_amount),0) * 100, 1) AS collection_rate
+                COALESCE(SUM(i.total_amount), 0)                              AS total_billed,
+                COALESCE(SUM(COALESCE(i.amount_paid,0)), 0)                   AS total_collected,
+                COALESCE(SUM(i.total_amount - COALESCE(i.amount_paid,0)), 0) AS total_outstanding,
+                COALESCE(ROUND(SUM(COALESCE(i.amount_paid,0)) / NULLIF(SUM(i.total_amount),0) * 100, 1), 0) AS collection_rate
              FROM invoices i
              JOIN leases l ON l.id = i.lease_id
              JOIN units u  ON u.id = l.unit_id
