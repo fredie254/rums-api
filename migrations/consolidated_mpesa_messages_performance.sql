@@ -25,8 +25,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- landlord's config to use.
 
 CREATE TABLE IF NOT EXISTS mpesa_configs (
-    id                  INT AUTO_INCREMENT PRIMARY KEY,
-    landlord_id         INT            NOT NULL,
+    id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    landlord_id         INT UNSIGNED   NOT NULL,
     shortcode           VARCHAR(20)    NOT NULL,
     shortcode_type      ENUM('paybill','till')         NOT NULL DEFAULT 'paybill',
     consumer_key        TEXT           NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS mpesa_configs (
     urls_registered_at  DATETIME       NULL,
     is_active           TINYINT(1)     NOT NULL DEFAULT 1,
     notes               TEXT           NULL,
-    created_by          INT            NULL,
+    created_by          INT UNSIGNED   NULL,
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
