@@ -13,12 +13,13 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ secrets.CPANEL_HOST }}
-          username: ${{ secrets.CPANEL_USER }}
-          key:      ${{ secrets.CPANEL_SSH_KEY }}
-          port:     ${{ secrets.CPANEL_PORT || 22 }}
+          host:     ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+          port:     ${{ secrets.SERVER_PORT || 22 }}
           script: |
             set -e
-            cd ${{ secrets.API_PATH }}
+            cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
+            php -r "opcache_reset();" 2>/dev/null || true
             echo "✅ API deployed at $(date)"
