@@ -67,8 +67,20 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 
 -- =============================================================================
--- 3. payments — unique constraint on mpesa_receipt
+-- 3. payments — add mpesa_receipt column + unique constraint
 -- =============================================================================
+
+SET @col_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'payments'
+      AND COLUMN_NAME  = 'mpesa_receipt'
+);
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE payments ADD COLUMN mpesa_receipt VARCHAR(50) NULL DEFAULT NULL AFTER mpesa_transaction_id',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx_exists = (
     SELECT COUNT(*) FROM information_schema.STATISTICS
