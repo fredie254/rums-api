@@ -21,38 +21,53 @@ function registerReportRoutes(Router $router, PDO $db): void
 
     $router->get('reports/financial', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $from   = Router::strParam('date_from', date('Y-01-01'));
         $to     = Router::strParam('date_to',   date('Y-m-d'));
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->financial($from, $to, $propId));
+        ApiResponse::ok($svc->financial($from, $to, $propId, $lid));
     });
 
     $router->get('reports/occupancy', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->occupancy($propId));
+        ApiResponse::ok($svc->occupancy($propId, $lid));
     });
 
     $router->get('reports/maintenance', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $from   = Router::strParam('date_from', date('Y-01-01'));
         $to     = Router::strParam('date_to',   date('Y-m-d'));
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->maintenance($from, $to, $propId));
+        ApiResponse::ok($svc->maintenance($from, $to, $propId, $lid));
     });
 
     $router->get('reports/rent-collection', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $year   = Router::intParam('year',  (int)date('Y'));
         $month  = Router::intParam('month', (int)date('n'));
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->rentCollection($year, $month, $propId));
+        ApiResponse::ok($svc->rentCollection($year, $month, $propId, $lid));
     });
 
     $router->get('reports/ledger', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid      = ApiAuth::landlordId($db);
         $tenantId = Router::intParam('tenant_id');
         if (!$tenantId) ApiResponse::badRequest('tenant_id is required.');
+        // Ensure landlord can only view ledgers for their own tenants
+        if ($lid) {
+            $owns = $db->prepare(
+                "SELECT 1 FROM leases l JOIN units u ON u.id = l.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE l.tenant_id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $owns->execute([$tenantId, $lid]);
+            if (!$owns->fetchColumn()) ApiResponse::forbidden('Tenant not in your portfolio.');
+        }
         $from = Router::strParam('date_from', date('Y-01-01'));
         $to   = Router::strParam('date_to',   date('Y-m-d'));
         ApiResponse::ok($svc->ledger($tenantId, $from, $to));
@@ -60,31 +75,35 @@ function registerReportRoutes(Router $router, PDO $db): void
 
     $router->get('reports/aging', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->aging($propId));
+        ApiResponse::ok($svc->aging($propId, $lid));
     });
 
     $router->get('reports/deposits', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->deposits($propId));
+        ApiResponse::ok($svc->deposits($propId, $lid));
     });
 
     // ── Arrears ───────────────────────────────────────────────
     $router->get('reports/arrears', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $months = Router::intParam('months') ?: 12;
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->arrears($months, $propId));
+        ApiResponse::ok($svc->arrears($months, $propId, $lid));
     });
 
     // ── Unit performance (both _ and - forms accepted) ────────
     $unitPerformance = function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $from   = Router::strParam('date_from', date('Y-01-01'));
         $to     = Router::strParam('date_to',   date('Y-m-d'));
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->unitPerformance($from, $to, $propId));
+        ApiResponse::ok($svc->unitPerformance($from, $to, $propId, $lid));
     };
     $router->get('reports/unit_performance', $unitPerformance);
     $router->get('reports/unit-performance', $unitPerformance);
@@ -92,13 +111,15 @@ function registerReportRoutes(Router $router, PDO $db): void
     // ── Tenant analytics ──────────────────────────────────────
     $router->get('reports/tenant-analytics', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid    = ApiAuth::landlordId($db);
         $propId = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->tenantAnalytics($propId));
+        ApiResponse::ok($svc->tenantAnalytics($propId, $lid));
     });
 
     // ── CSV Export ────────────────────────────────────────────
     $router->get('reports/export', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid = ApiAuth::landlordId($db);
 
         $report = $_GET['report'] ?? '';
         $validReports = ['financial','occupancy','rent_collection','arrears','tenant_analytics','maintenance','aging','deposits','unit_performance'];
@@ -110,7 +131,7 @@ function registerReportRoutes(Router $router, PDO $db): void
         $params = $_GET;
         unset($params['report'], $params['format']);
 
-        $data = $svc->exportCsv($report, $params);
+        $data = $svc->exportCsv($report, $params, $lid);
         if (empty($data['headers'])) {
             ApiResponse::badRequest('No data to export.');
             return;

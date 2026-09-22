@@ -5,9 +5,11 @@ class ReportService extends BaseService
 {
     // ── Financial ─────────────────────────────────────────────
 
-    public function financial(string $dateFrom, string $dateTo, ?int $propertyId = null): array
+    public function financial(string $dateFrom, string $dateTo, ?int $propertyId = null, ?int $landlordId = null): array
     {
-        $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $pf  = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf  = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
+        $elf = $landlordId ? "AND e.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         $income = $this->fetchAll(
             "SELECT DATE_FORMAT(p.payment_date,'%Y-%m') AS period,
@@ -16,7 +18,7 @@ class ReportService extends BaseService
              FROM payments p
              LEFT JOIN leases l ON l.id = p.lease_id
              LEFT JOIN units u  ON u.id = l.unit_id
-             WHERE p.payment_date BETWEEN ? AND ? $pf
+             WHERE p.payment_date BETWEEN ? AND ? $pf $lf
              GROUP BY period, p.payment_type
              ORDER BY period",
             [$dateFrom, $dateTo]
@@ -28,7 +30,7 @@ class ReportService extends BaseService
              FROM expenses e
              WHERE e.expense_date BETWEEN ? AND ?
                AND e.status IN ('approved','paid')
-               " . ($propertyId ? "AND e.property_id = $propertyId" : '') . "
+               " . ($propertyId ? "AND e.property_id = $propertyId" : '') . " $elf
              GROUP BY period, e.category ORDER BY period",
             [$dateFrom, $dateTo]
         );
@@ -38,13 +40,13 @@ class ReportService extends BaseService
                 COALESCE(SUM(CASE WHEN p.payment_date BETWEEN ? AND ? THEN p.amount END), 0) AS total_income,
                 (SELECT COALESCE(SUM(amount), 0) FROM expenses
                  WHERE expense_date BETWEEN ? AND ? AND status IN ('approved','paid')
-                 " . ($propertyId ? "AND property_id = $propertyId" : '') . ") AS total_expenses,
+                 " . ($propertyId ? "AND property_id = $propertyId" : '') . " $elf) AS total_expenses,
                 (SELECT COALESCE(SUM(total_amount - amount_paid), 0) FROM invoices
                  WHERE status IN ('unpaid','partial','overdue')) AS outstanding_ar
              FROM payments p
              LEFT JOIN leases l ON l.id = p.lease_id
              LEFT JOIN units u  ON u.id = l.unit_id
-             WHERE 1=1 $pf",
+             WHERE 1=1 $pf $lf",
             [$dateFrom, $dateTo, $dateFrom, $dateTo]
         );
 
@@ -58,9 +60,13 @@ class ReportService extends BaseService
 
     // ── Occupancy ─────────────────────────────────────────────
 
-    public function occupancy(?int $propertyId = null): array
+    public function occupancy(?int $propertyId = null, ?int $landlordId = null): array
     {
-        $where = $propertyId ? "WHERE p.id = $propertyId" : '';
+        $conds = [];
+        if ($propertyId) $conds[] = "p.id = $propertyId";
+        if ($landlordId) $conds[] = "p.landlord_id = $landlordId";
+        $where = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
+        $lf    = $landlordId ? "AND p.landlord_id = $landlordId" : '';
 
         $by_property = $this->fetchAll(
             "SELECT p.name AS property_name,
@@ -81,7 +87,7 @@ class ReportService extends BaseService
                 SUM(u.status='occupied')  AS occupied,
                 SUM(u.status='available') AS available
              FROM units u
-             " . ($propertyId ? "WHERE u.property_id = $propertyId" : '') . "
+             " . ($propertyId ? "WHERE u.property_id = $propertyId" : ($landlordId ? "JOIN properties pp ON pp.id = u.property_id WHERE pp.landlord_id = $landlordId" : '')) . "
              GROUP BY u.unit_type",
             []
         );
@@ -91,7 +97,7 @@ class ReportService extends BaseService
                 COUNT(DISTINCT l.id) AS new_leases
              FROM leases l JOIN units u ON u.id = l.unit_id
              WHERE l.start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-             " . ($propertyId ? "AND u.property_id = $propertyId" : '') . "
+             " . ($propertyId ? "AND u.property_id = $propertyId" : '') . " $lf
              GROUP BY month ORDER BY month",
             []
         );
@@ -101,7 +107,8 @@ class ReportService extends BaseService
                 SUM(status='occupied')    AS occupied,
                 SUM(status='available')   AS available,
                 SUM(status='maintenance') AS maintenance
-             FROM units " . ($propertyId ? "WHERE property_id = $propertyId" : ''),
+             FROM units u2
+             " . ($propertyId ? "WHERE u2.property_id = $propertyId" : ($landlordId ? "JOIN properties pp2 ON pp2.id = u2.property_id WHERE pp2.landlord_id = $landlordId" : '')),
             []
         );
 
@@ -110,9 +117,10 @@ class ReportService extends BaseService
 
     // ── Maintenance ───────────────────────────────────────────
 
-    public function maintenance(string $dateFrom, string $dateTo, ?int $propertyId = null): array
+    public function maintenance(string $dateFrom, string $dateTo, ?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         $summary = $this->fetchOne(
             "SELECT COUNT(*) AS total,
@@ -127,7 +135,7 @@ class ReportService extends BaseService
                     THEN DATEDIFF(mr.work_completed, mr.created_at) END) AS avg_days
              FROM maintenance_requests mr
              LEFT JOIN units u ON u.id = mr.unit_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf",
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf $lf",
             [$dateFrom, $dateTo]
         );
 
@@ -136,7 +144,7 @@ class ReportService extends BaseService
                 COALESCE(SUM(mr.materials_cost + mr.labour_cost), 0) AS total_cost
              FROM maintenance_requests mr
              LEFT JOIN units u ON u.id = mr.unit_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf $lf
              GROUP BY mr.category ORDER BY count DESC",
             [$dateFrom, $dateTo]
         );
@@ -148,7 +156,7 @@ class ReportService extends BaseService
              FROM maintenance_requests mr
              LEFT JOIN units u       ON u.id  = mr.unit_id
              LEFT JOIN properties pr ON pr.id = u.property_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf $lf
              GROUP BY pr.id ORDER BY count DESC",
             [$dateFrom, $dateTo]
         );
@@ -157,7 +165,7 @@ class ReportService extends BaseService
             "SELECT DATE_FORMAT(mr.created_at,'%Y-%m') AS month, COUNT(*) AS count
              FROM maintenance_requests mr
              LEFT JOIN units u ON u.id = mr.unit_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf $lf
              GROUP BY month ORDER BY month",
             [$dateFrom, $dateTo]
         );
@@ -247,9 +255,10 @@ class ReportService extends BaseService
     // ── AR Aging ──────────────────────────────────────────────
     // Groups all outstanding invoices into standard aging buckets.
 
-    public function aging(?int $propertyId = null): array
+    public function aging(?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
 
         $rows = $this->fetchAll(
             "SELECT
@@ -265,7 +274,7 @@ class ReportService extends BaseService
              JOIN tenants t      ON t.id  = i.tenant_id
              JOIN units u        ON u.id  = l.unit_id
              JOIN properties pr  ON pr.id = u.property_id
-             WHERE i.status IN ('unpaid','partial','overdue') $pf
+             WHERE i.status IN ('unpaid','partial','overdue') $pf $lf
              ORDER BY days_overdue DESC",
             []
         );
@@ -300,9 +309,10 @@ class ReportService extends BaseService
 
     // ── Deposit Summary ───────────────────────────────────────
 
-    public function deposits(?int $propertyId = null): array
+    public function deposits(?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
 
         $rows = $this->fetchAll(
             "SELECT
@@ -321,7 +331,7 @@ class ReportService extends BaseService
              JOIN properties pr  ON pr.id = u.property_id
              LEFT JOIN payments p ON p.lease_id = l.id
                AND p.payment_type IN ('deposit','deposit_refund')
-             WHERE l.status IN ('active','terminated') $pf
+             WHERE l.status IN ('active','terminated') $pf $lf
              GROUP BY l.id
              ORDER BY pr.name, u.unit_number",
             []
@@ -354,9 +364,11 @@ class ReportService extends BaseService
     // ── Arrears Analysis ──────────────────────────────────────
     // Monthly arrears trend + worst-offender list.
 
-    public function arrears(int $months = 12, ?int $propertyId = null): array
+    public function arrears(int $months = 12, ?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
+        $lfu = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         // Monthly billed vs collected over past N months
         $trend = $this->fetchAll(
@@ -370,7 +382,7 @@ class ReportService extends BaseService
              JOIN leases l       ON l.id  = i.lease_id
              JOIN units u        ON u.id  = l.unit_id
              WHERE i.invoice_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-               AND i.status != 'cancelled' $pf
+               AND i.status != 'cancelled' $pf $lfu
              GROUP BY month
              ORDER BY month",
             [$months]
@@ -391,7 +403,7 @@ class ReportService extends BaseService
              JOIN leases l       ON l.id  = i.lease_id
              JOIN units u        ON u.id  = l.unit_id
              JOIN properties pr  ON pr.id = u.property_id
-             WHERE i.status IN ('unpaid','partial','overdue') $pf
+             WHERE i.status IN ('unpaid','partial','overdue') $pf $lf
              GROUP BY i.tenant_id
              HAVING total_outstanding > 0
              ORDER BY total_outstanding DESC
@@ -410,7 +422,7 @@ class ReportService extends BaseService
              JOIN leases l       ON l.id  = i.lease_id
              JOIN units u        ON u.id  = l.unit_id
              JOIN properties pr  ON pr.id = u.property_id
-             WHERE i.status IN ('unpaid','partial','overdue')
+             WHERE i.status IN ('unpaid','partial','overdue') $pf $lf
              GROUP BY pr.id
              ORDER BY outstanding DESC",
             []
@@ -427,7 +439,7 @@ class ReportService extends BaseService
              JOIN leases l ON l.id = i.lease_id
              JOIN units u  ON u.id = l.unit_id
              WHERE i.invoice_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
-               AND i.status != 'cancelled' $pf",
+               AND i.status != 'cancelled' $pf $lfu",
             []
         );
 
@@ -436,9 +448,11 @@ class ReportService extends BaseService
 
     // ── Tenant Analytics ──────────────────────────────────────
 
-    public function tenantAnalytics(?int $propertyId = null): array
+    public function tenantAnalytics(?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
+        $lfu = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         // New tenants per month (last 12 months)
         $newPerMonth = $this->fetchAll(
@@ -446,7 +460,7 @@ class ReportService extends BaseService
                 COUNT(DISTINCT l.tenant_id) AS new_tenants
              FROM leases l
              JOIN units u ON u.id = l.unit_id
-             WHERE l.start_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) $pf
+             WHERE l.start_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) $pf $lfu
              GROUP BY month ORDER BY month",
             []
         );
@@ -458,7 +472,7 @@ class ReportService extends BaseService
              FROM leases l
              JOIN units u ON u.id = l.unit_id
              WHERE l.status IN ('terminated','expired')
-               AND l.end_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) $pf
+               AND l.end_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) $pf $lfu
              GROUP BY month ORDER BY month",
             []
         );
@@ -471,7 +485,7 @@ class ReportService extends BaseService
                 MAX(DATEDIFF(IFNULL(end_date, CURDATE()), start_date) / 30.44)            AS max_months
              FROM leases l
              JOIN units u ON u.id = l.unit_id
-             WHERE l.status IN ('active','terminated','expired') $pf",
+             WHERE l.status IN ('active','terminated','expired') $pf $lfu",
             []
         );
 
@@ -498,7 +512,7 @@ class ReportService extends BaseService
              JOIN units u        ON u.id  = l.unit_id
              JOIN properties pr  ON pr.id = u.property_id
              WHERE l.status = 'active'
-               AND l.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY) $pf
+               AND l.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY) $pf $lf
              ORDER BY l.end_date",
             []
         );
@@ -516,7 +530,7 @@ class ReportService extends BaseService
              JOIN units u        ON u.id  = l.unit_id
              JOIN properties pr  ON pr.id = u.property_id
              JOIN payments p     ON p.tenant_id = t.id AND p.status = 'completed'
-             WHERE 1=1 $pf
+             WHERE 1=1 $pf $lf
              GROUP BY t.id
              ORDER BY total_paid DESC
              LIMIT 10",
@@ -529,9 +543,10 @@ class ReportService extends BaseService
     // ── Unit Performance ──────────────────────────────────────
     // Per-unit breakdown: occupancy, rent collected, outstanding, maintenance.
 
-    public function unitPerformance(string $dateFrom, string $dateTo, ?int $propertyId = null): array
+    public function unitPerformance(string $dateFrom, string $dateTo, ?int $propertyId = null, ?int $landlordId = null): array
     {
         $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
 
         $rows = $this->fetchAll(
             "SELECT
@@ -557,7 +572,7 @@ class ReportService extends BaseService
                 AND i.invoice_date BETWEEN ? AND ?
              LEFT JOIN maintenance_requests mr ON mr.unit_id = u.id
                 AND DATE(mr.created_at) BETWEEN ? AND ?
-             WHERE 1=1 $pf
+             WHERE 1=1 $pf $lf
              GROUP BY u.id
              ORDER BY pr.name, u.unit_number",
             [$dateFrom, $dateTo, $dateFrom, $dateTo]
@@ -593,28 +608,29 @@ class ReportService extends BaseService
     // ── CSV Export ────────────────────────────────────────────
     // Returns [headers => [], rows => []] ready for fputcsv.
 
-    public function exportCsv(string $reportType, array $params): array
+    public function exportCsv(string $reportType, array $params, ?int $landlordId = null): array
     {
         return match ($reportType) {
-            'financial'        => $this->exportFinancial($params),
-            'occupancy'        => $this->exportOccupancy($params),
-            'rent_collection'  => $this->exportRentCollection($params),
-            'arrears'          => $this->exportArrears($params),
-            'tenant_analytics' => $this->exportTenants($params),
-            'maintenance'      => $this->exportMaintenance($params),
-            'aging'            => $this->exportAging($params),
-            'deposits'         => $this->exportDeposits($params),
-            'unit_performance' => $this->exportUnitPerformance($params),
+            'financial'        => $this->exportFinancial($params, $landlordId),
+            'occupancy'        => $this->exportOccupancy($params, $landlordId),
+            'rent_collection'  => $this->exportRentCollection($params, $landlordId),
+            'arrears'          => $this->exportArrears($params, $landlordId),
+            'tenant_analytics' => $this->exportTenants($params, $landlordId),
+            'maintenance'      => $this->exportMaintenance($params, $landlordId),
+            'aging'            => $this->exportAging($params, $landlordId),
+            'deposits'         => $this->exportDeposits($params, $landlordId),
+            'unit_performance' => $this->exportUnitPerformance($params, $landlordId),
             default            => ['headers' => [], 'rows' => []],
         };
     }
 
-    private function exportFinancial(array $p): array
+    private function exportFinancial(array $p, ?int $landlordId = null): array
     {
-        $from  = $p['date_from'] ?? date('Y-01-01');
-        $to    = $p['date_to']   ?? date('Y-m-d');
+        $from   = $p['date_from'] ?? date('Y-01-01');
+        $to     = $p['date_to']   ?? date('Y-m-d');
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $pf    = $propId ? "AND u.property_id = $propId" : '';
+        $pf     = $propId ? "AND u.property_id = $propId" : '';
+        $lf     = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         $rows = $this->fetchAll(
             "SELECT DATE_FORMAT(p.payment_date,'%Y-%m') AS Period,
@@ -633,7 +649,7 @@ class ReportService extends BaseService
              LEFT JOIN units u   ON u.id = l.unit_id
              LEFT JOIN properties pr ON pr.id = u.property_id
              WHERE p.payment_date BETWEEN ? AND ?
-               AND p.status = 'completed' $pf
+               AND p.status = 'completed' $pf $lf
              ORDER BY p.payment_date",
             [$from, $to]
         );
@@ -642,10 +658,13 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportOccupancy(array $p): array
+    private function exportOccupancy(array $p, ?int $landlordId = null): array
     {
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $where  = $propId ? "WHERE u.property_id = $propId" : '';
+        $conds  = [];
+        if ($propId)    $conds[] = "u.property_id = $propId";
+        if ($landlordId) $conds[] = "pr.landlord_id = $landlordId";
+        $where  = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
 
         $rows = $this->fetchAll(
             "SELECT pr.name AS Property, u.unit_number AS Unit, u.unit_type AS Type,
@@ -665,12 +684,12 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportRentCollection(array $p): array
+    private function exportRentCollection(array $p, ?int $landlordId = null): array
     {
         $year   = (int)($p['year']  ?? date('Y'));
         $month  = (int)($p['month'] ?? date('n'));
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $data   = $this->rentCollection($year, $month, $propId);
+        $data   = $this->rentCollection($year, $month, $propId, $landlordId);
 
         $headers = ['Property','Unit','Tenant','Expected','Collected','Balance','Invoice Status','Days Overdue'];
         $rows    = array_map(fn($r) => [
@@ -683,10 +702,10 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportArrears(array $p): array
+    private function exportArrears(array $p, ?int $landlordId = null): array
     {
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $data   = $this->arrears(12, $propId);
+        $data   = $this->arrears(12, $propId, $landlordId);
 
         $headers = ['Tenant','Property','Unit','Total Outstanding','Overdue Invoices','Oldest Due','Max Days Overdue','Email','Phone'];
         $rows    = array_map(fn($r) => [
@@ -699,10 +718,11 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportTenants(array $p): array
+    private function exportTenants(array $p, ?int $landlordId = null): array
     {
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
         $pf     = $propId ? "AND u.property_id = $propId" : '';
+        $lf     = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
 
         $rows = $this->fetchAll(
             "SELECT CONCAT(t.first_name,' ',t.last_name) AS 'Full Name',
@@ -715,7 +735,7 @@ class ReportService extends BaseService
              LEFT JOIN leases l ON l.tenant_id = t.id AND l.status = 'active'
              LEFT JOIN units u  ON u.id  = l.unit_id
              LEFT JOIN properties pr ON pr.id = u.property_id
-             WHERE 1=1 $pf
+             WHERE 1=1 $pf $lf
              ORDER BY pr.name, u.unit_number",
             []
         );
@@ -724,12 +744,13 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportMaintenance(array $p): array
+    private function exportMaintenance(array $p, ?int $landlordId = null): array
     {
         $from   = $p['date_from'] ?? date('Y-01-01');
         $to     = $p['date_to']   ?? date('Y-m-d');
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
         $pf     = $propId ? "AND u.property_id = $propId" : '';
+        $lf     = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
 
         $rows = $this->fetchAll(
             "SELECT mr.id AS ID, pr.name AS Property, u.unit_number AS Unit,
@@ -743,7 +764,7 @@ class ReportService extends BaseService
              LEFT JOIN properties pr ON pr.id = u.property_id
              LEFT JOIN leases l     ON l.unit_id = mr.unit_id AND l.status = 'active'
              LEFT JOIN tenants t    ON t.id = l.tenant_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf $lf
              ORDER BY mr.created_at DESC",
             [$from, $to]
         );
@@ -752,10 +773,10 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportAging(array $p): array
+    private function exportAging(array $p, ?int $landlordId = null): array
     {
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $data   = $this->aging($propId);
+        $data   = $this->aging($propId, $landlordId);
 
         $headers = ['Invoice No.','Property','Unit','Tenant','Invoice Date','Due Date','Total Amount','Paid','Balance','Days Overdue','Bucket'];
         $rows    = [];
@@ -774,10 +795,10 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportDeposits(array $p): array
+    private function exportDeposits(array $p, ?int $landlordId = null): array
     {
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $data   = $this->deposits($propId);
+        $data   = $this->deposits($propId, $landlordId);
 
         $headers = ['Property','Unit','Tenant','Lease No.','Lease Status','Expected Deposit','Paid','Refunded','Held Balance','Outstanding'];
         $rows    = array_map(fn($r) => [
@@ -790,12 +811,12 @@ class ReportService extends BaseService
         return compact('headers', 'rows');
     }
 
-    private function exportUnitPerformance(array $p): array
+    private function exportUnitPerformance(array $p, ?int $landlordId = null): array
     {
         $from   = $p['date_from'] ?? date('Y-01-01');
         $to     = $p['date_to']   ?? date('Y-m-d');
         $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
-        $data   = $this->unitPerformance($from, $to, $propId);
+        $data   = $this->unitPerformance($from, $to, $propId, $landlordId);
 
         $headers = ['Property','Unit','Type','Bedrooms','Rent Amount','Status','Tenant',
                     'Lease Start','Lease End','Invoiced','Collected','Outstanding','Collection Rate %','Maintenance Requests','Maintenance Cost'];
@@ -813,16 +834,18 @@ class ReportService extends BaseService
 
     // ── Rent Collection ───────────────────────────────────────
 
-    public function rentCollection(int $year, int $month, ?int $propertyId = null): array
+    public function rentCollection(int $year, int $month, ?int $propertyId = null, ?int $landlordId = null): array
     {
-        $pf       = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $pf  = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf  = $landlordId ? "AND pr.landlord_id = $landlordId" : '';
+        $lfu = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
         $dateFrom = "$year-$month-01";
         $dateTo   = date('Y-m-t', strtotime($dateFrom));
 
         $expected = (float)$this->fetchColumn(
             "SELECT COALESCE(SUM(u.rent_amount), 0)
              FROM leases l JOIN units u ON u.id = l.unit_id
-             WHERE l.status = 'active' $pf",
+             WHERE l.status = 'active' $pf $lfu",
             []
         );
 
@@ -830,7 +853,7 @@ class ReportService extends BaseService
             "SELECT COALESCE(SUM(p.amount), 0) FROM payments p
              LEFT JOIN leases l ON l.id = p.lease_id
              LEFT JOIN units u  ON u.id = l.unit_id
-             WHERE p.payment_date BETWEEN ? AND ? $pf",
+             WHERE p.payment_date BETWEEN ? AND ? $pf $lfu",
             [$dateFrom, $dateTo]
         );
 
@@ -849,7 +872,7 @@ class ReportService extends BaseService
                AND YEAR(i.invoice_date) = ? AND MONTH(i.invoice_date) = ?
              LEFT JOIN payments p ON p.invoice_id = i.id
                AND p.payment_date BETWEEN ? AND ?
-             WHERE l.status = 'active' $pf
+             WHERE l.status = 'active' $pf $lf
              GROUP BY l.id ORDER BY pr.name, u.unit_number",
             [$year, $month, $dateFrom, $dateTo]
         );

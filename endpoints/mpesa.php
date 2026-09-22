@@ -700,7 +700,7 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         ApiAuth::requireRole($db, 'admin', 'super_admin');
 
         $b = Router::body();
-        $required = ['landlord_id', 'shortcode', 'consumer_key', 'consumer_secret', 'passkey'];
+        $required = ['landlord_id', 'shortcode', 'consumer_key', 'consumer_secret'];
         foreach ($required as $f) {
             if (empty($b[$f])) ApiResponse::unprocessable("$f is required.");
         }
@@ -718,11 +718,11 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         try {
             $db->prepare(
                 "INSERT INTO mpesa_configs
-                    (landlord_id, shortcode, shortcode_type, consumer_key, consumer_secret, passkey, environment, is_active, created_by)
-                 VALUES (?,?,?,?,?,?,?,1,?)"
+                    (landlord_id, shortcode, shortcode_type, consumer_key, consumer_secret, environment, is_active, created_by)
+                 VALUES (?,?,?,?,?,?,1,?)"
             )->execute([
                 $landlordId, $shortcode, $shortcodeType,
-                trim($b['consumer_key']), trim($b['consumer_secret']), trim($b['passkey']),
+                trim($b['consumer_key']), trim($b['consumer_secret']),
                 $environment, ApiAuth::userId(),
             ]);
             $newId = (int)$db->lastInsertId();
@@ -746,7 +746,7 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
 
         $fields = [];
         $params = [];
-        $allowed = ['shortcode', 'shortcode_type', 'consumer_key', 'consumer_secret', 'passkey', 'environment', 'is_active', 'notes'];
+        $allowed = ['shortcode', 'shortcode_type', 'consumer_key', 'consumer_secret', 'environment', 'is_active', 'notes'];
         foreach ($allowed as $f) {
             if (array_key_exists($f, $b)) {
                 $fields[] = "$f = ?";

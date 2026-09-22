@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS mpesa_configs (
     shortcode_type      ENUM('paybill','till')       NOT NULL DEFAULT 'paybill',
     consumer_key        TEXT           NOT NULL,
     consumer_secret     TEXT           NOT NULL,
-    passkey             TEXT           NOT NULL,
     environment         ENUM('sandbox','production') NOT NULL DEFAULT 'production',
     urls_registered     TINYINT(1)     NOT NULL DEFAULT 0,
     urls_registered_at  DATETIME       NULL,
