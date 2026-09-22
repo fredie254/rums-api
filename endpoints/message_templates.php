@@ -2,18 +2,70 @@
 /**
  * Message Templates endpoints
  *
- * GET    /api/v1/message-templates              list (filter: category, channel)
- * POST   /api/v1/message-templates              create (admin/manager)
- * GET    /api/v1/message-templates/{id}         find
- * PUT    /api/v1/message-templates/{id}         update (admin/manager)
- * DELETE /api/v1/message-templates/{id}         delete (admin/manager)
+ * Super admin / manager — manage global defaults (landlord_id IS NULL):
+ *   GET    /api/v1/message-templates              list global defaults
+ *   POST   /api/v1/message-templates              create global template
+ *   GET    /api/v1/message-templates/{id}         fetch one
+ *   PUT    /api/v1/message-templates/{id}         update
+ *   DELETE /api/v1/message-templates/{id}         delete global template
+ *
+ * Landlord — customize per-property notification messages:
+ *   GET    /api/v1/message-templates/effective     merged view (custom > global default)
+ *   POST   /api/v1/message-templates/my            save custom override for a category+channel
+ *   DELETE /api/v1/message-templates/my/{cat}/{ch} reset a category+channel to global default
  */
 function registerMessageTemplateRoutes(Router $router, PDO $db): void
 {
     $svc = fn() => new NotificationService($db);
 
-    // ── List ─────────────────────────────────────────────────
-    $router->get('message-templates', function () use ($svc) {
+    // ── Landlord: effective merged view ──────────────────────────────────────
+    // Returns each global default + the landlord's custom version if they have one.
+    // Available placeholders are appended to each row so the UI can show them.
+    $router->get('message-templates/effective', function () use ($db, $svc) {
+        ApiAuth::require($db);
+        $landlordId = ApiAuth::landlordId($db);
+        if (!$landlordId) ApiResponse::forbidden('Only landlords can access effective templates.');
+
+        $rows = $svc()->listEffectiveTemplates($landlordId);
+
+        // Append placeholder reference to each row
+        $vars = templatePlaceholders();
+        foreach ($rows as &$r) {
+            $r['placeholders'] = $vars[$r['category']] ?? $vars['general'];
+        }
+        unset($r);
+
+        ApiResponse::ok($rows);
+    });
+
+    // ── Landlord: save / update custom override ───────────────────────────────
+    $router->post('message-templates/my', function () use ($db, $svc) {
+        ApiAuth::require($db);
+        $landlordId = ApiAuth::landlordId($db);
+        if (!$landlordId) ApiResponse::forbidden('Only landlords can save custom templates.');
+
+        $body   = Router::body();
+        $result = $svc()->upsertLandlordTemplate($landlordId, ApiAuth::userId(), $body);
+
+        if (!$result['success']) {
+            ApiResponse::unprocessable('Missing fields: ' . implode(', ', $result['errors'] ?? []));
+            return;
+        }
+        ApiResponse::ok(['id' => $result['id']], 'Custom template saved.');
+    });
+
+    // ── Landlord: reset category+channel to global default ────────────────────
+    $router->delete('message-templates/my/{category}/{channel}', function (string $category, string $channel) use ($db, $svc) {
+        ApiAuth::require($db);
+        $landlordId = ApiAuth::landlordId($db);
+        if (!$landlordId) ApiResponse::forbidden('Only landlords can reset their templates.');
+
+        $svc()->resetLandlordTemplate($landlordId, $category, $channel);
+        ApiResponse::ok([], 'Reset to default.');
+    });
+
+    // ── Global: List (admin/manager see global defaults; landlords see their own) ─
+    $router->get('message-templates', function () use ($db, $svc) {
         $filters = [];
         if (!empty($_GET['category'])) $filters['category'] = $_GET['category'];
         if (!empty($_GET['channel']))  $filters['channel']  = $_GET['channel'];
@@ -22,11 +74,13 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         ApiResponse::ok(['data' => $rows, 'total' => count($rows)]);
     });
 
-    // ── Create ───────────────────────────────────────────────
+    // ── Global: Create (admin/manager) ───────────────────────────────────────
     $router->post('message-templates', function () use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'manager', 'super_admin', 'property_manager');
         $body   = Router::body();
         $user   = ApiAuth::user();
+        // Force landlord_id to null so admins can't accidentally create scoped templates here
+        unset($body['landlord_id']);
         $result = $svc()->createTemplate($body, $user['id']);
 
         if (!$result['success']) {
@@ -36,15 +90,15 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         ApiResponse::created(['id' => $result['id']], 'Template created.');
     });
 
-    // ── Find ─────────────────────────────────────────────────
+    // ── Find one ──────────────────────────────────────────────────────────────
     $router->get('message-templates/{id}', function (string $id) use ($svc) {
         $row = $svc()->findTemplate((int)$id);
         $row ? ApiResponse::ok($row) : ApiResponse::notFound('Template not found.');
     });
 
-    // ── Update ───────────────────────────────────────────────
+    // ── Update ────────────────────────────────────────────────────────────────
     $router->put('message-templates/{id}', function (string $id) use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'manager', 'super_admin', 'property_manager');
         $result = $svc()->updateTemplate((int)$id, Router::body());
 
         if (!$result['success']) {
@@ -54,10 +108,26 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         ApiResponse::ok(null, 'Template updated.');
     });
 
-    // ── Delete ───────────────────────────────────────────────
+    // ── Delete ────────────────────────────────────────────────────────────────
     $router->delete('message-templates/{id}', function (string $id) use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin');
+        ApiAuth::requireRole($db, 'admin', 'super_admin');
         $ok = $svc()->deleteTemplate((int)$id);
         $ok ? ApiResponse::ok(null, 'Template deleted.') : ApiResponse::notFound('Template not found.');
     });
+}
+
+/**
+ * Available {{PLACEHOLDER}} tokens per category.
+ * Shown in the UI so landlords know what variables they can use.
+ */
+function templatePlaceholders(): array
+{
+    $common = ['{{TENANT_NAME}}', '{{UNIT_NUMBER}}', '{{PROPERTY_NAME}}', '{{COMPANY_NAME}}'];
+    return [
+        'payment'     => array_merge($common, ['{{AMOUNT_DUE}}', '{{AMOUNT_PAID}}', '{{PAYMENT_DATE}}', '{{PAYMENT_REF}}', '{{INVOICE_NUMBER}}', '{{DUE_DATE}}', '{{BALANCE}}']),
+        'lease'       => array_merge($common, ['{{LEASE_NUMBER}}', '{{START_DATE}}', '{{END_DATE}}', '{{DAYS_REMAINING}}', '{{MONTHLY_RENT}}']),
+        'maintenance' => array_merge($common, ['{{STATUS}}', '{{PRIORITY}}', '{{DESCRIPTION}}']),
+        'general'     => array_merge($common, ['{{MESSAGE}}']),
+        'broadcast'   => $common,
+    ];
 }

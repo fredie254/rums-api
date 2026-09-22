@@ -128,18 +128,22 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $tid = ApiAuth::tenantId($db);
         if ($tid !== null) $tenantId = $tid;
 
+        // Landlords see only invoices for their properties
+        $landlordId = ApiAuth::landlordId($db);
+
         if ($status === 'outstanding') {
             $where[] = "i.status IN ('unpaid','partial','overdue')";
         } elseif ($status) {
             $where[] = 'i.status = ?'; $params[] = $status;
         }
-        if ($tenantId) { $where[] = 'i.tenant_id = ?';      $params[] = $tenantId; }
-        if ($leaseId)  { $where[] = 'i.lease_id = ?';       $params[] = $leaseId; }
-        if ($propId)   { $where[] = 'u.property_id = ?';    $params[] = $propId; }
-        if ($from)     { $where[] = 'i.invoice_date >= ?';  $params[] = $from; }
-        if ($to)       { $where[] = 'i.invoice_date <= ?';  $params[] = $to; }
-        if ($periodY)  { $where[] = 'i.period_year = ?';    $params[] = $periodY; }
-        if ($periodM)  { $where[] = 'i.period_month = ?';   $params[] = $periodM; }
+        if ($tenantId)   { $where[] = 'i.tenant_id = ?';      $params[] = $tenantId; }
+        if ($leaseId)    { $where[] = 'i.lease_id = ?';       $params[] = $leaseId; }
+        if ($propId)     { $where[] = 'u.property_id = ?';    $params[] = $propId; }
+        if ($from)       { $where[] = 'i.invoice_date >= ?';  $params[] = $from; }
+        if ($to)         { $where[] = 'i.invoice_date <= ?';  $params[] = $to; }
+        if ($periodY)    { $where[] = 'i.period_year = ?';    $params[] = $periodY; }
+        if ($periodM)    { $where[] = 'i.period_month = ?';   $params[] = $periodM; }
+        if ($landlordId) { $where[] = 'pr.landlord_id = ?';   $params[] = $landlordId; }
 
         $w   = 'WHERE ' . implode(' AND ', $where);
         $pg  = Router::page();
@@ -148,8 +152,9 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
 
         $cntStmt = $db->prepare(
             "SELECT COUNT(*) FROM invoices i
-             LEFT JOIN leases l ON l.id = i.lease_id
-             LEFT JOIN units u  ON u.id = l.unit_id $w"
+             LEFT JOIN leases l      ON l.id  = i.lease_id
+             LEFT JOIN units u       ON u.id  = l.unit_id
+             LEFT JOIN properties pr ON pr.id = u.property_id $w"
         );
         $cntStmt->execute($params);
         $total = (int)$cntStmt->fetchColumn();

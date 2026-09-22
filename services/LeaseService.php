@@ -17,6 +17,7 @@ class LeaseService extends BaseService
         if (!empty($filters['property_id'])) { $where[] = 'u.property_id = ?'; $params[] = (int)$filters['property_id']; }
         if (!empty($filters['tenant_id']))   { $where[] = 'l.tenant_id = ?';   $params[] = (int)$filters['tenant_id']; }
         if (!empty($filters['unit_id']))     { $where[] = 'l.unit_id = ?';     $params[] = (int)$filters['unit_id']; }
+        if (!empty($filters['landlord_id'])) { $where[] = 'pr.landlord_id = ?'; $params[] = (int)$filters['landlord_id']; }
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
@@ -35,7 +36,8 @@ class LeaseService extends BaseService
                 $w ORDER BY l.created_at DESC";
 
         $countSql = "SELECT COUNT(*) FROM leases l
-                     JOIN units u ON u.id = l.unit_id $w";
+                     JOIN units u       ON u.id  = l.unit_id
+                     JOIN properties pr ON pr.id = u.property_id $w";
 
         $result = $this->paginatedQuery($sql, $params, $countSql, $params, $page, $perPage);
 

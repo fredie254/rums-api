@@ -132,6 +132,26 @@ class MpesaService
         return json_decode($response, true) ?? [];
     }
 
+    /**
+     * Register C2B Validation and Confirmation URLs with Safaricom.
+     * Call this once after storing a landlord's config, or whenever the
+     * callback domain changes.
+     *
+     * @param string $validateUrl  Absolute URL Safaricom will call to validate a payment
+     * @param string $confirmUrl   Absolute URL Safaricom will call to confirm a payment
+     * @param string $responseType 'Completed' (no validation) or 'Cancelled' (reject unvalidated)
+     */
+    public function registerUrls(string $validateUrl, string $confirmUrl, string $responseType = 'Completed'): array
+    {
+        $token = $this->getAccessToken();
+        return $this->post('/mpesa/c2b/v1/registerurl', [
+            'ShortCode'       => $this->shortcode,
+            'ResponseType'    => $responseType,
+            'ConfirmationURL' => $confirmUrl,
+            'ValidationURL'   => $validateUrl,
+        ], $token);
+    }
+
     public static function formatPhone(string $phone): string
     {
         $phone = preg_replace('/\D/', '', $phone);

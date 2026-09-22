@@ -17,12 +17,14 @@ function registerPropertyRoutes(Router $router, PDO $db): void
 
     $router->get('properties', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:properties');
+        // Landlords only see their own properties
+        $landlordId = ApiAuth::landlordId($db);
         ApiResponse::paginated($svc->list(
             filters: [
                 'search'        => Router::strParam('search'),
                 'status'        => Router::strParam('status'),
                 'property_type' => Router::strParam('type'),
-                'landlord_id'   => Router::intParam('landlord_id'),
+                'landlord_id'   => $landlordId ?? Router::intParam('landlord_id'),
             ],
             page:    Router::page(),
             perPage: Router::perPage()

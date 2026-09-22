@@ -542,7 +542,7 @@ class NotificationService extends BaseService
         $sql = "SELECT cl.*,
                     CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
                     mt.name AS template_name,
-                    CONCAT(u.first_name,' ',u.last_name) AS sent_by_name
+                    u.name AS sent_by_name
                 FROM communication_logs cl
                 LEFT JOIN tenants t           ON t.id  = cl.tenant_id
                 LEFT JOIN message_templates mt ON mt.id = cl.template_id
@@ -559,7 +559,7 @@ class NotificationService extends BaseService
     public function getBroadcasts(int $page = 1, int $perPage = 20): array
     {
         $sql = "SELECT b.*,
-                    CONCAT(u.first_name,' ',u.last_name) AS created_by_name,
+                    u.name AS created_by_name,
                     mt.name AS template_name
                 FROM broadcast_messages b
                 LEFT JOIN users u             ON u.id  = b.created_by
@@ -575,7 +575,7 @@ class NotificationService extends BaseService
     {
         return $this->fetchOne(
             "SELECT b.*,
-                    CONCAT(u.first_name,' ',u.last_name) AS created_by_name
+                    u.name AS created_by_name
              FROM broadcast_messages b
              LEFT JOIN users u ON u.id = b.created_by
              WHERE b.id = ?",
@@ -620,7 +620,7 @@ class NotificationService extends BaseService
 
     public function listTemplates(array $filters = []): array
     {
-        $where  = ['1=1'];
+        $where  = ['mt.landlord_id IS NULL'];
         $params = [];
         if (!empty($filters['category'])) { $where[] = 'category = ?'; $params[] = $filters['category']; }
         if (!empty($filters['channel']))  { $where[] = 'channel = ?';  $params[] = $filters['channel']; }
@@ -628,11 +628,65 @@ class NotificationService extends BaseService
         $w = 'WHERE ' . implode(' AND ', $where);
         return $this->fetchAll(
             "SELECT mt.*,
-                    CONCAT(u.first_name,' ',u.last_name) AS created_by_name
+                    u.name AS created_by_name
              FROM message_templates mt
              LEFT JOIN users u ON u.id = mt.created_by
              $w ORDER BY mt.category, mt.name",
             $params
+        );
+    }
+
+    /**
+     * For landlords: returns global defaults merged with their own overrides.
+     * Each row has 'customized' = true when the landlord has their own version.
+     * Used by the landlord settings/messages page.
+     */
+    public function listEffectiveTemplates(int $landlordId): array
+    {
+        $globals = $this->fetchAll(
+            "SELECT mt.*, FALSE AS customized, NULL AS custom_id
+             FROM message_templates mt
+             WHERE mt.landlord_id IS NULL
+             ORDER BY mt.category, mt.channel",
+            []
+        );
+
+        $customs = $this->fetchAll(
+            "SELECT * FROM message_templates WHERE landlord_id = ? ORDER BY category, channel",
+            [$landlordId]
+        );
+        $customMap = [];
+        foreach ($customs as $c) {
+            $customMap[$c['category'] . '|' . $c['channel']] = $c;
+        }
+
+        $result = [];
+        foreach ($globals as $g) {
+            $key    = $g['category'] . '|' . $g['channel'];
+            $custom = $customMap[$key] ?? null;
+            $result[] = $custom
+                ? array_merge($custom, ['customized' => true,  'custom_id' => $custom['id'], 'default_body' => $g['body'], 'default_subject' => $g['subject']])
+                : array_merge($g,      ['customized' => false, 'custom_id' => null, 'default_body' => $g['body'], 'default_subject' => $g['subject']]);
+        }
+        return $result;
+    }
+
+    /**
+     * Resolve the effective template for a notification send.
+     * Landlord's override wins; falls back to global default.
+     */
+    public function resolveTemplate(string $category, string $channel, ?int $landlordId = null): ?array
+    {
+        if ($landlordId) {
+            $row = $this->fetchOne(
+                "SELECT * FROM message_templates WHERE landlord_id = ? AND category = ? AND channel = ? AND is_active = 1 LIMIT 1",
+                [$landlordId, $category, $channel]
+            );
+            if ($row) return $row;
+        }
+        return $this->fetchOne(
+            "SELECT * FROM message_templates WHERE landlord_id IS NULL AND category = ? AND channel = ? AND is_active = 1 LIMIT 1",
+            [$category, $channel]
         );
     }
 
@@ -641,15 +695,22 @@ class NotificationService extends BaseService
         return $this->fetchOne("SELECT * FROM message_templates WHERE id = ?", [$id]);
     }
 
+    /**
+     * Create a template.
+     * Pass landlord_id in $data to create a landlord override; omit for a global template.
+     */
     public function createTemplate(array $data, int $userId): array
     {
         $missing = $this->requireFields($data, ['name', 'category', 'channel', 'body']);
         if ($missing) return ['success' => false, 'errors' => $missing];
 
+        $landlordId = isset($data['landlord_id']) ? (int)$data['landlord_id'] : null;
+
         $id = $this->insert(
-            "INSERT INTO message_templates (name, category, channel, subject, body, is_active, created_by)
-             VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO message_templates (landlord_id, name, category, channel, subject, body, is_active, created_by)
+             VALUES (?,?,?,?,?,?,?,?)",
             [
+                $landlordId,
                 $data['name'],
                 $data['category'],
                 $data['channel'],
@@ -673,6 +734,50 @@ class NotificationService extends BaseService
         $this->execute("UPDATE message_templates SET $set WHERE id = ?", $vals);
 
         return ['success' => true];
+    }
+
+    /**
+     * Upsert a landlord's custom version of a template (category + channel pair).
+     * If they already have a custom one, update it; otherwise insert.
+     */
+    public function upsertLandlordTemplate(int $landlordId, int $userId, array $data): array
+    {
+        $missing = $this->requireFields($data, ['category', 'channel', 'body']);
+        if ($missing) return ['success' => false, 'errors' => $missing];
+
+        $existing = $this->fetchOne(
+            "SELECT id FROM message_templates WHERE landlord_id = ? AND category = ? AND channel = ?",
+            [$landlordId, $data['category'], $data['channel']]
+        );
+
+        if ($existing) {
+            $allowed = $this->only($data, ['name', 'subject', 'body', 'is_active']);
+            if ($allowed) {
+                [$set, $vals] = $this->buildSet($allowed);
+                $vals[] = $existing['id'];
+                $this->execute("UPDATE message_templates SET $set WHERE id = ?", $vals);
+            }
+            return ['success' => true, 'id' => $existing['id']];
+        }
+
+        $name = $data['name'] ?? ucfirst($data['category']) . ' ' . ucfirst($data['channel']) . ' (Custom)';
+        $id   = $this->insert(
+            "INSERT INTO message_templates (landlord_id, name, category, channel, subject, body, is_active, created_by)
+             VALUES (?,?,?,?,?,?,1,?)",
+            [$landlordId, $name, $data['category'], $data['channel'], $data['subject'] ?? null, $data['body'], $userId]
+        );
+        return ['success' => true, 'id' => $id];
+    }
+
+    /**
+     * Delete a landlord's custom override for a category+channel, reverting to the global default.
+     */
+    public function resetLandlordTemplate(int $landlordId, string $category, string $channel): bool
+    {
+        return (bool)$this->execute(
+            "DELETE FROM message_templates WHERE landlord_id = ? AND category = ? AND channel = ?",
+            [$landlordId, $category, $channel]
+        );
     }
 
     public function deleteTemplate(int $id): bool

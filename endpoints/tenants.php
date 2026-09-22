@@ -18,11 +18,13 @@ function registerTenantRoutes(Router $router, PDO $db): void
 
     $router->get('tenants', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:tenants');
+        $landlordId = ApiAuth::landlordId($db);
         ApiResponse::paginated($svc->list(
             filters: [
-                'search'      => Router::strParam('search'),
-                'status'      => Router::strParam('status'),
-                'property_id' => Router::intParam('property_id'),
+                'search'       => Router::strParam('search'),
+                'status'       => Router::strParam('status'),
+                'property_id'  => Router::intParam('property_id'),
+                'landlord_id'  => $landlordId,
             ],
             page: Router::page(), perPage: Router::perPage()
         ));

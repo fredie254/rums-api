@@ -21,6 +21,7 @@ class MaintenanceService extends BaseService
         if (!empty($filters['unit_id']))     { $where[] = 'mr.unit_id = ?';      $params[] = (int)$filters['unit_id']; }
         if (!empty($filters['assigned_to'])) { $where[] = 'mr.assigned_to = ?'; $params[] = (int)$filters['assigned_to']; }
         if (!empty($filters['tenant_id']))   { $where[] = 'mr.tenant_id = ?';   $params[] = (int)$filters['tenant_id']; }
+        if (!empty($filters['landlord_id'])) { $where[] = 'pr.landlord_id = ?'; $params[] = (int)$filters['landlord_id']; }
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
@@ -39,7 +40,8 @@ class MaintenanceService extends BaseService
             ORDER BY FIELD(mr.priority,'urgent','high','medium','low'), mr.created_at DESC";
 
         $countSql = "SELECT COUNT(*) FROM maintenance_requests mr
-            LEFT JOIN units u ON u.id = mr.unit_id $w";
+            LEFT JOIN units u        ON u.id  = mr.unit_id
+            LEFT JOIN properties pr  ON pr.id = u.property_id $w";
 
         return $this->paginatedQuery($sql, $params, $countSql, $params, $page, $perPage);
     }
@@ -64,6 +66,11 @@ class MaintenanceService extends BaseService
 
     public function create(array $data): array
     {
+        // Accept 'title' as a common alias for 'issue_title'
+        if (empty($data['issue_title']) && !empty($data['title'])) {
+            $data['issue_title'] = $data['title'];
+        }
+
         $missing = $this->requireFields($data, ['unit_id', 'issue_title', 'priority']);
         if ($missing) return ['success' => false, 'errors' => $missing, 'message' => 'Missing required fields.'];
 

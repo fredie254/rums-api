@@ -42,6 +42,9 @@ function registerPaymentRoutes(Router $router, PDO $db): void
         $tid = ApiAuth::tenantId($db);
         if ($tid !== null) $filters['tenant_id'] = $tid;
 
+        $lid = ApiAuth::landlordId($db);
+        if ($lid !== null) $filters['landlord_id'] = $lid;
+
         ApiResponse::paginated($svc->list($filters, Router::page(), Router::perPage()));
     });
 

@@ -38,6 +38,9 @@ function registerLeaseRoutes(Router $router, PDO $db): void
             $t = $row->fetch();
             $filters['tenant_id'] = $t ? (int)$t['id'] : 0;
         }
+        // Landlords see only leases for their properties
+        $landlordId = ApiAuth::landlordId($db);
+        if ($landlordId !== null) $filters['landlord_id'] = $landlordId;
 
         ApiResponse::paginated($svc->list($filters, Router::page(), Router::perPage()));
     });

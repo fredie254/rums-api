@@ -18,26 +18,29 @@ function registerUnitRoutes(Router $router, PDO $db): void
         $where  = ['1=1'];
         $params = [];
 
-        $propId = Router::intParam('property_id');
-        $status = Router::strParam('status');
-        $type   = Router::strParam('type');
+        $propId     = Router::intParam('property_id');
+        $status     = Router::strParam('status');
+        $type       = Router::strParam('type');
+        $landlordId = ApiAuth::landlordId($db);
 
-        if ($propId) { $where[] = 'u.property_id = ?'; $params[] = $propId; }
-        if ($status) { $where[] = 'u.status = ?';       $params[] = $status; }
-        if ($type)   { $where[] = 'u.unit_type = ?';    $params[] = $type; }
+        if ($propId)     { $where[] = 'u.property_id = ?';   $params[] = $propId; }
+        if ($status)     { $where[] = 'u.status = ?';         $params[] = $status; }
+        if ($type)       { $where[] = 'u.unit_type = ?';      $params[] = $type; }
+        if ($landlordId) { $where[] = 'pr.landlord_id = ?';   $params[] = $landlordId; }
 
         $w       = 'WHERE ' . implode(' AND ', $where);
         $page    = Router::page();
         $perPage = Router::perPage();
         $offset  = ($page - 1) * $perPage;
 
-        $cntStmt = $db->prepare("SELECT COUNT(*) FROM units u $w");
+        $cntStmt = $db->prepare("SELECT COUNT(*) FROM units u LEFT JOIN properties pr ON pr.id = u.property_id $w");
         $cntStmt->execute($params);
         $total = (int)$cntStmt->fetchColumn();
 
         $stmt = $db->prepare(
             "SELECT u.*,
                 pr.name AS property_name,
+                t.id AS tenant_id,
                 CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
                 t.phone AS tenant_phone,
                 l.id AS lease_id, l.end_date AS lease_end

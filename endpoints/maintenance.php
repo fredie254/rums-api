@@ -113,6 +113,9 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
             $t = $row->fetch();
             $filters['tenant_id'] = $t ? (int)$t['id'] : 0;
         }
+        // Landlords: only requests for their properties
+        $lid = ApiAuth::landlordId($db);
+        if ($lid !== null) $filters['landlord_id'] = $lid;
 
         try {
             $result = $svc->list($filters, Router::page(), Router::perPage());

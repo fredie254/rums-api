@@ -129,6 +129,29 @@ class ApiAuth
     public static function userRole(): ?string { return self::$currentUser['role'] ?? null; }
 
     /**
+     * Return the landlords.id for the currently authenticated landlord/owner user.
+     * Cached per-request. Returns null for non-landlord roles.
+     */
+    public static function landlordId(PDO $db): ?int
+    {
+        static $resolved = false;
+        static $lid      = null;
+
+        if ($resolved) return $lid;
+        $resolved = true;
+
+        $role = self::userRole();
+        if ($role !== 'landlord' && $role !== 'owner') return null;
+
+        $stmt = $db->prepare("SELECT id FROM landlords WHERE user_id = ? LIMIT 1");
+        $stmt->execute([self::userId()]);
+        $row = $stmt->fetchColumn();
+        $lid = $row !== false ? (int)$row : null;
+
+        return $lid;
+    }
+
+    /**
      * Return the tenants.id for the currently authenticated tenant user.
      * Result is cached per-request (static variable) — the DB is only hit once
      * even when multiple endpoints call this within the same request.

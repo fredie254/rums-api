@@ -34,40 +34,62 @@ class TenantService extends BaseService
 
     public function list(array $filters = [], int $page = 1, int $perPage = 20): array
     {
-        $where  = ['1=1'];
+        // Use users as the base so every user whose role='tenant' appears,
+        // even if they have no tenants profile row yet.
+        $where  = ["u.role = 'tenant'"];
         $params = [];
 
         if (!empty($filters['search'])) {
-            // Only search unencrypted columns (phone is now encrypted, cannot LIKE)
-            $where[] = "(CONCAT(t.first_name,' ',t.last_name) LIKE ? OR t.email LIKE ?)";
+            // Search on the fallback-aware full name / email; phone is encrypted and not searchable.
+            $where[] = "(COALESCE(CONCAT(t.first_name,' ',t.last_name), u.name) LIKE ? OR COALESCE(t.email, u.email) LIKE ?)";
             $s = '%' . $filters['search'] . '%';
             $params[] = $s;
             $params[] = $s;
         }
         if (!empty($filters['status'])) {
-            $where[] = 't.status = ?';
+            $where[] = 'COALESCE(t.status, u.status) = ?';
             $params[] = $filters['status'];
         }
         if (!empty($filters['property_id'])) {
-            $where[] = 'u.property_id = ?';
+            $where[] = 'un.property_id = ?';
             $params[] = (int)$filters['property_id'];
+        }
+        if (!empty($filters['landlord_id'])) {
+            $where[] = 'pr.landlord_id = ?';
+            $params[] = (int)$filters['landlord_id'];
         }
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $sql = "SELECT t.*,
-            CONCAT(t.first_name,' ',t.last_name) AS full_name,
+        $sql = "SELECT
+            u.id AS user_id, u.name AS user_name, u.email AS user_email, u.phone AS user_phone,
+            t.id, t.id_number, t.id_type, t.id_number_hash,
+            t.dob, t.gender, t.nationality,
+            t.emergency_contact_name, t.emergency_contact_phone,
+            t.next_of_kin_name, t.next_of_kin_phone,
+            t.occupation, t.employer, t.monthly_income, t.notes,
+            COALESCE(t.first_name, SUBSTRING_INDEX(u.name, ' ', 1)) AS first_name,
+            COALESCE(t.last_name, TRIM(SUBSTR(u.name, LOCATE(' ', CONCAT(u.name, ' '))))) AS last_name,
+            COALESCE(CONCAT(t.first_name,' ',t.last_name), u.name) AS full_name,
+            COALESCE(t.email, u.email) AS email,
+            COALESCE(t.phone, u.phone) AS phone,
+            COALESCE(t.status, u.status) AS status,
             l.id AS lease_id, l.status AS lease_status,
-            u.unit_number, pr.name AS property_name
-            FROM tenants t
-            LEFT JOIN leases l      ON l.tenant_id = t.id AND l.status = 'active'
-            LEFT JOIN units u       ON u.id = l.unit_id
-            LEFT JOIN properties pr ON pr.id = u.property_id
-            $w ORDER BY t.first_name, t.last_name";
+            un.unit_number, pr.name AS property_name
+            FROM users u
+            LEFT JOIN tenants t  ON t.user_id = u.id
+            LEFT JOIN leases l   ON l.tenant_id = t.id AND l.status = 'active'
+            LEFT JOIN units un   ON un.id = l.unit_id
+            LEFT JOIN properties pr ON pr.id = un.property_id
+            $w ORDER BY COALESCE(t.first_name, u.name), t.last_name";
 
-        $countSql = "SELECT COUNT(DISTINCT t.id) FROM tenants t
-            LEFT JOIN leases l ON l.tenant_id = t.id AND l.status='active'
-            LEFT JOIN units u ON u.id = l.unit_id $w";
+        $countSql = "SELECT COUNT(DISTINCT u.id)
+            FROM users u
+            LEFT JOIN tenants t  ON t.user_id = u.id
+            LEFT JOIN leases l   ON l.tenant_id = t.id AND l.status = 'active'
+            LEFT JOIN units un   ON un.id = l.unit_id
+            LEFT JOIN properties pr ON pr.id = un.property_id
+            $w";
 
         $result = $this->paginatedQuery($sql, $params, $countSql, $params, $page, $perPage);
         $result['data'] = array_map([self::class, 'decryptRow'], $result['data']);
@@ -198,7 +220,7 @@ class TenantService extends BaseService
 
         $this->db->beginTransaction();
         try {
-            $defaultPassword = 'Tenant@' . substr(preg_replace('/\D/', '', $data['id_number']), -4);
+            $defaultPassword = 'Rums@1234.';
 
             $userId = $this->insert(
                 "INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, 'tenant', 'active')",
@@ -225,7 +247,7 @@ class TenantService extends BaseService
             'id'               => $id,
             'user_id'          => $userId,
             'default_password' => $defaultPassword,
-            'message'          => 'Tenant created. Default password: ' . $defaultPassword,
+            'message'          => 'Tenant created. Default password: Rums@1234.',
         ];
     }
 

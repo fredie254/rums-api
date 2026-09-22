@@ -43,5 +43,26 @@ RewriteRule ^(.*)$ index.php [QSA,L]
 
 # ── Compression ────────────────────────────────────────────────
 <IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE application/json text/plain
+    AddOutputFilterByType DEFLATE application/json text/plain application/javascript text/css
+    # Compression level 6 is a good balance of speed vs size
+    DeflateCompressionLevel 6
 </IfModule>
+
+# ── Keep-Alive — reuse TCP connections for multiple API calls ──
+<IfModule mod_headers.c>
+    Header always set Connection "keep-alive"
+    Header always set Keep-Alive "timeout=30, max=100"
+</IfModule>
+
+# ── Cache-Control for API responses ────────────────────────────
+# Prevent API responses being stale-cached by proxies;
+# React Query handles client-side caching.
+<IfModule mod_headers.c>
+    <FilesMatch "\.php$">
+        Header always set Cache-Control "no-store, no-cache, must-revalidate"
+        Header always set Pragma "no-cache"
+    </FilesMatch>
+</IfModule>
+
+# ── ETag — allow conditional 304 responses ──────────────────────
+FileETag None
