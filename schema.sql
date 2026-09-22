@@ -8,6 +8,7 @@
 -- PHP Version: 8.4.21
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+SET FOREIGN_KEY_CHECKS=0;
 START TRANSACTION;
 SET time_zone = "+00:00";
 
@@ -2790,7 +2791,7 @@ CREATE TABLE `lease_templates` (
 --
 
 CREATE TABLE `maintenance_requests` (
-  `id` int UNSIGNED NOT NULL,
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
   `request_number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `unit_id` int UNSIGNED NOT NULL,
   `tenant_id` int UNSIGNED DEFAULT NULL,
@@ -2811,7 +2812,8 @@ CREATE TABLE `maintenance_requests` (
   `is_recurring` tinyint(1) NOT NULL DEFAULT '0',
   `next_due_date` date DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -3444,7 +3446,6 @@ ALTER TABLE `lease_templates`
 -- Indexes for table `maintenance_requests`
 --
 ALTER TABLE `maintenance_requests`
-  ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_request_number` (`request_number`),
   ADD KEY `fk_mr_unit` (`unit_id`),
   ADD KEY `fk_mr_tenant` (`tenant_id`),
@@ -4040,6 +4041,8 @@ ALTER TABLE `visitor_logs`
   ADD CONSTRAINT `fk_visitor_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `fk_visitor_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `fk_visitor_unit` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE SET NULL;
+
+SET FOREIGN_KEY_CHECKS=1;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
