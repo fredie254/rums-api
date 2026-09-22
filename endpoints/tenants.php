@@ -16,6 +16,18 @@ function registerTenantRoutes(Router $router, PDO $db): void
 {
     $svc = new TenantService($db);
 
+    // Asserts the tenant has at least one lease under the landlord's properties.
+    $ownTenant = static function (int $tenantId, int $lid) use ($db): void {
+        $ok = $db->prepare(
+            "SELECT 1 FROM leases l
+             JOIN units u ON u.id = l.unit_id
+             JOIN properties pr ON pr.id = u.property_id
+             WHERE l.tenant_id = ? AND pr.landlord_id = ? LIMIT 1"
+        );
+        $ok->execute([$tenantId, $lid]);
+        if (!$ok->fetchColumn()) ApiResponse::notFound('Tenant not found.');
+    };
+
     $router->get('tenants', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:tenants');
         $landlordId = ApiAuth::landlordId($db);
@@ -38,34 +50,37 @@ function registerTenantRoutes(Router $router, PDO $db): void
             : ApiResponse::unprocessable($res['message'], $res['errors'] ?? []);
     });
 
-    $router->get('tenants/{id}', function (string $id) use ($svc, $db) {
+    $router->get('tenants/{id}', function (string $id) use ($svc, $db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:tenants');
 
-        // Tenants can only read their own record
         $user = ApiAuth::user();
         if ($user['role'] === 'tenant') {
             $own = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
             $own->execute([$user['id']]);
             $row = $own->fetch();
-            if (!$row || (int)$row['id'] !== (int)$id) {
-                ApiResponse::forbidden('Access denied.');
-            }
+            if (!$row || (int)$row['id'] !== (int)$id) ApiResponse::forbidden('Access denied.');
         }
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
 
         $t = $svc->find((int)$id);
         $t ? ApiResponse::ok($t) : ApiResponse::notFound('Tenant not found.');
     });
 
-    $router->put('tenants/{id}', function (string $id) use ($svc, $db) {
+    $router->put('tenants/{id}', function (string $id) use ($svc, $db, $ownTenant) {
         ApiAuth::requireScope($db, 'write:tenants');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $res = $svc->update((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(null, $res['message'])
             : ApiResponse::unprocessable($res['message']);
     });
 
-    $router->patch('tenants/{id}', function (string $id) use ($svc, $db) {
+    $router->patch('tenants/{id}', function (string $id) use ($svc, $db, $ownTenant) {
         ApiAuth::requireScope($db, 'write:tenants');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $res = $svc->update((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(null, $res['message'])
@@ -80,15 +95,19 @@ function registerTenantRoutes(Router $router, PDO $db): void
             : ApiResponse::unprocessable($res['message']);
     });
 
-    $router->get('tenants/{id}/statement', function (string $id) use ($svc, $db) {
+    $router->get('tenants/{id}/statement', function (string $id) use ($svc, $db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:tenants');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $from = Router::strParam('date_from', date('Y-m-01'));
         $to   = Router::strParam('date_to',   date('Y-m-d'));
         ApiResponse::ok($svc->getStatement((int)$id, $from, $to));
     });
 
-    $router->get('tenants/{id}/invoices', function (string $id) use ($db) {
+    $router->get('tenants/{id}/invoices', function (string $id) use ($db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:invoices');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $status = Router::strParam('status');
         $where  = $status ? "AND i.status = " . $db->quote($status) : '';
         $stmt   = $db->prepare(
@@ -103,8 +122,10 @@ function registerTenantRoutes(Router $router, PDO $db): void
         ApiResponse::ok($stmt->fetchAll());
     });
 
-    $router->get('tenants/{id}/payments', function (string $id) use ($db) {
+    $router->get('tenants/{id}/payments', function (string $id) use ($db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:payments');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $stmt = $db->prepare(
             "SELECT p.*, i.invoice_number, u.unit_number
              FROM payments p
@@ -118,8 +139,10 @@ function registerTenantRoutes(Router $router, PDO $db): void
     });
 
     // GET  /tenants/{id}/kyc-documents ─────────────────────────
-    $router->get('tenants/{id}/kyc-documents', function (string $id) use ($db) {
+    $router->get('tenants/{id}/kyc-documents', function (string $id) use ($db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:tenants');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $stmt = $db->prepare(
             "SELECT k.*, u.name AS uploaded_by_name
              FROM kyc_documents k
@@ -131,8 +154,10 @@ function registerTenantRoutes(Router $router, PDO $db): void
     });
 
     // POST /tenants/{id}/kyc-documents ─────────────────────────
-    $router->post('tenants/{id}/kyc-documents', function (string $id) use ($db) {
+    $router->post('tenants/{id}/kyc-documents', function (string $id) use ($db, $ownTenant) {
         ApiAuth::requireScope($db, 'write:tenants');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $body = Router::body();
 
         $missing = array_filter(['document_type','original_name','file_path'], fn($f) => empty($body[$f]));
@@ -180,8 +205,10 @@ function registerTenantRoutes(Router $router, PDO $db): void
         ApiResponse::ok(['file_path' => $doc['file_path']], 'Document deleted.');
     });
 
-    $router->get('tenants/{id}/maintenance', function (string $id) use ($db) {
+    $router->get('tenants/{id}/maintenance', function (string $id) use ($db, $ownTenant) {
         ApiAuth::requireScope($db, 'read:maintenance');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownTenant((int)$id, $lid);
         $stmt = $db->prepare(
             "SELECT mr.*, u.unit_number, pr.name AS property_name
              FROM maintenance_requests mr

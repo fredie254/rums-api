@@ -195,6 +195,17 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         );
         if ($missing) ApiResponse::unprocessable('Missing: ' . implode(', ', $missing));
 
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM leases l JOIN units u ON u.id = l.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE l.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$body['lease_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Lease does not belong to your portfolio.');
+        }
+
         $l = $db->prepare("SELECT tenant_id FROM leases WHERE id = ?");
         $l->execute([(int)$body['lease_id']]);
         $lease = $l->fetch();
@@ -225,6 +236,18 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
     // ── View single ───────────────────────────────────────────
     $router->get('invoices/{id}', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:invoices');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM invoices i
+                 JOIN leases l ON l.id = i.lease_id
+                 JOIN units u ON u.id = l.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE i.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Invoice not found.');
+        }
 
         $stmt = $db->prepare(
             "SELECT i.*,
@@ -262,6 +285,18 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
     // ── Partial update ────────────────────────────────────────
     $router->patch('invoices/{id}', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'write:invoices');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM invoices i
+                 JOIN leases l ON l.id = i.lease_id
+                 JOIN units u ON u.id = l.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE i.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Invoice not found.');
+        }
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip([
             'due_date', 'total_amount', 'rent_amount', 'utility_amount',

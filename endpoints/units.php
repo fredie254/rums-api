@@ -11,6 +11,16 @@
  */
 function registerUnitRoutes(Router $router, PDO $db): void
 {
+    // Verify a unit belongs to the calling landlord (no-op for admin/manager).
+    $ownUnit = static function (int $unitId, int $lid) use ($db): void {
+        $ok = $db->prepare(
+            "SELECT 1 FROM units u JOIN properties pr ON pr.id = u.property_id
+             WHERE u.id = ? AND pr.landlord_id = ? LIMIT 1"
+        );
+        $ok->execute([$unitId, $lid]);
+        if (!$ok->fetchColumn()) ApiResponse::notFound('Unit not found.');
+    };
+
     // GET /units ───────────────────────────────────────────────
     $router->get('units', function () use ($db) {
         ApiAuth::requireScope($db, 'read:units');
@@ -65,7 +75,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
     });
 
     // POST /units ──────────────────────────────────────────────
-    $router->post('units', function () use ($db) {
+    $router->post('units', function () use ($db, $ownUnit) {
         ApiAuth::requireScope($db, 'write:units');
         $body    = Router::body();
         $missing = array_filter(
@@ -73,6 +83,13 @@ function registerUnitRoutes(Router $router, PDO $db): void
             fn($f) => empty($body[$f])
         );
         if ($missing) ApiResponse::unprocessable('Missing required fields: ' . implode(', ', $missing));
+
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$body['property_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Property does not belong to you.');
+        }
 
         $exists = $db->prepare("SELECT COUNT(*) FROM units WHERE property_id = ? AND unit_number = ?");
         $exists->execute([(int)$body['property_id'], $body['unit_number']]);
@@ -100,8 +117,10 @@ function registerUnitRoutes(Router $router, PDO $db): void
     });
 
     // GET /units/{id} ──────────────────────────────────────────
-    $router->get('units/{id}', function (string $id) use ($db) {
+    $router->get('units/{id}', function (string $id) use ($db, $ownUnit) {
         ApiAuth::requireScope($db, 'read:units');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownUnit((int)$id, $lid);
 
         $stmt = $db->prepare(
             "SELECT u.*, pr.name AS property_name,
@@ -133,8 +152,10 @@ function registerUnitRoutes(Router $router, PDO $db): void
     });
 
     // PUT /units/{id} ──────────────────────────────────────────
-    $router->put('units/{id}', function (string $id) use ($db) {
+    $router->put('units/{id}', function (string $id) use ($db, $ownUnit) {
         ApiAuth::requireScope($db, 'write:units');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownUnit((int)$id, $lid);
         $body  = Router::body();
         $check = $db->prepare("SELECT id FROM units WHERE id = ?");
         $check->execute([(int)$id]);
@@ -155,8 +176,10 @@ function registerUnitRoutes(Router $router, PDO $db): void
     });
 
     // PATCH /units/{id} ────────────────────────────────────────
-    $router->patch('units/{id}', function (string $id) use ($db) {
+    $router->patch('units/{id}', function (string $id) use ($db, $ownUnit) {
         ApiAuth::requireScope($db, 'write:units');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownUnit((int)$id, $lid);
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip([
             'unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
@@ -173,8 +196,10 @@ function registerUnitRoutes(Router $router, PDO $db): void
     });
 
     // PATCH /units/{id}/status ─────────────────────────────────
-    $router->patch('units/{id}/status', function (string $id) use ($db) {
+    $router->patch('units/{id}/status', function (string $id) use ($db, $ownUnit) {
         ApiAuth::requireScope($db, 'write:units');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownUnit((int)$id, $lid);
         $status = Router::body()['status'] ?? '';
         $valid  = ['available', 'occupied', 'maintenance', 'inactive'];
 

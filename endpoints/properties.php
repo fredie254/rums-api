@@ -42,11 +42,20 @@ function registerPropertyRoutes(Router $router, PDO $db): void
     $router->get('properties/{id}', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:properties');
         $prop = $svc->find((int)$id);
-        $prop ? ApiResponse::ok($prop) : ApiResponse::notFound('Property not found.');
+        if (!$prop) ApiResponse::notFound('Property not found.');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid && (int)$prop['landlord_id'] !== $lid) ApiResponse::notFound('Property not found.');
+        ApiResponse::ok($prop);
     });
 
     $router->put('properties/{id}', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:properties');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Property not found.');
+        }
         $res = $svc->update((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(null, $res['message'])
@@ -55,6 +64,12 @@ function registerPropertyRoutes(Router $router, PDO $db): void
 
     $router->patch('properties/{id}', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:properties');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Property not found.');
+        }
         $res = $svc->update((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(null, $res['message'])
@@ -71,6 +86,12 @@ function registerPropertyRoutes(Router $router, PDO $db): void
 
     $router->get('properties/{id}/units', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:units');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Property not found.');
+        }
         $stmt = $db->prepare(
             "SELECT u.*, CONCAT(t.first_name,' ',t.last_name) AS tenant_name
              FROM units u
@@ -85,6 +106,12 @@ function registerPropertyRoutes(Router $router, PDO $db): void
 
     $router->get('properties/{id}/stats', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:properties');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Property not found.');
+        }
         ApiResponse::ok($svc->stats((int)$id));
     });
 }

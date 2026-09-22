@@ -17,10 +17,11 @@ function registerPaymentRoutes(Router $router, PDO $db): void
     // Static routes before parameterised
     $router->get('payments/summary', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:payments');
-        $from  = Router::strParam('date_from', date('Y-m-01'));
-        $to    = Router::strParam('date_to',   date('Y-m-d'));
-        $propId= Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->summary($from, $to, $propId));
+        $lid    = ApiAuth::landlordId($db);
+        $from   = Router::strParam('date_from', date('Y-m-01'));
+        $to     = Router::strParam('date_to',   date('Y-m-d'));
+        $propId = Router::intParam('property_id') ?: null;
+        ApiResponse::ok($svc->summary($from, $to, $propId, $lid));
     });
 
     $router->get('payments', function () use ($svc, $db) {
@@ -76,6 +77,9 @@ function registerPaymentRoutes(Router $router, PDO $db): void
         $tid = ApiAuth::tenantId($db);
         if ($tid !== null) $filters['tenant_id'] = $tid;
 
+        $lid = ApiAuth::landlordId($db);
+        if ($lid !== null) $filters['landlord_id'] = $lid;
+
         $result = $svc->list($filters, 1, 5000);
         $rows   = $result['data'] ?? [];
 
@@ -106,6 +110,18 @@ function registerPaymentRoutes(Router $router, PDO $db): void
     // ── Single payment ─────────────────────────────────────────────
     $router->get('payments/{id}', function (string $id) use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:payments');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM payments p
+                 JOIN leases l ON l.id = p.lease_id
+                 JOIN units u ON u.id = l.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE p.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Payment not found.');
+        }
         $p = $svc->find((int)$id);
         $p ? ApiResponse::ok($p) : ApiResponse::notFound('Payment not found.');
     });

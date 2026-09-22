@@ -24,12 +24,14 @@ function registerVisitorRoutes(Router $router, PDO $db): void
         $perPage = Router::perPage(50);
         $offset  = ($page - 1) * $perPage;
 
+        $lid    = ApiAuth::landlordId($db);
         $where  = ['1=1'];
         $params = [];
 
         if ($date)   { $where[] = 'DATE(vl.check_in) = ?';  $params[] = $date; }
         if ($propId) { $where[] = 'vl.property_id = ?';     $params[] = $propId; }
         if ($status) { $where[] = 'vl.status = ?';          $params[] = $status; }
+        if ($lid)    { $where[] = 'p.landlord_id = ?';      $params[] = $lid; }
         if ($search) {
             $where[] = '(vl.visitor_name LIKE ? OR vl.visitor_phone LIKE ? OR vl.visitor_id_no LIKE ?)';
             $s = "%$search%"; $params[] = $s; $params[] = $s; $params[] = $s;
@@ -71,6 +73,13 @@ function registerVisitorRoutes(Router $router, PDO $db): void
         $body     = Router::body();
         $user     = ApiAuth::user();
         $propId   = (int)($body['property_id'] ?? 0) ?: null;
+
+        $lid = ApiAuth::landlordId($db);
+        if ($lid && $propId) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([$propId, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Property does not belong to you.');
+        }
         $hostName = $body['host_name'] ?? null;
 
         $unitId   = null;
@@ -116,6 +125,15 @@ function registerVisitorRoutes(Router $router, PDO $db): void
 
     $checkout = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM visitor_logs vl JOIN properties p ON p.id = vl.property_id
+                 WHERE vl.id = ? AND p.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Visitor log not found.');
+        }
         $db->prepare(
             "UPDATE visitor_logs SET status='out', check_out=NOW(), updated_at=NOW() WHERE id=? AND status='in'"
         )->execute([(int)$id]);
@@ -124,6 +142,15 @@ function registerVisitorRoutes(Router $router, PDO $db): void
 
     $overstay = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM visitor_logs vl JOIN properties p ON p.id = vl.property_id
+                 WHERE vl.id = ? AND p.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Visitor log not found.');
+        }
         $db->prepare(
             "UPDATE visitor_logs SET status='overstay', updated_at=NOW() WHERE id=? AND status='in'"
         )->execute([(int)$id]);

@@ -87,8 +87,9 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
     // ── Static routes first ──────────────────────────────────────
     $router->get('maintenance/summary', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:maintenance');
+        $lid = ApiAuth::landlordId($db);
         $pid = Router::intParam('property_id') ?: null;
-        ApiResponse::ok($svc->summary($pid));
+        ApiResponse::ok($svc->summary($pid, $lid));
     });
 
     $router->get('maintenance', function () use ($svc, $db) {
@@ -130,6 +131,17 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
         ApiAuth::requireScope($db, 'write:maintenance');
         $body = Router::body();
         $user = ApiAuth::user();
+
+        // Landlords: can only create requests for their own units
+        $lid = ApiAuth::landlordId($db);
+        if ($lid && !empty($body['unit_id'])) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM units u JOIN properties pr ON pr.id = u.property_id
+                 WHERE u.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$body['unit_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Unit does not belong to your portfolio.');
+        }
 
         // Tenants can only submit for their own active unit
         if ($user['role'] === 'tenant') {
@@ -191,6 +203,18 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
         // Maintenance staff: only their own assigned tasks
         if ($user['role'] === 'maintenance' && (int)($wo['assigned_to'] ?? 0) !== $user['id']) {
             ApiResponse::forbidden('You can only view tasks assigned to you.');
+        }
+        // Landlords: only requests for their properties
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM maintenance_requests mr
+                 JOIN units u ON u.id = mr.unit_id
+                 JOIN properties pr ON pr.id = u.property_id
+                 WHERE mr.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$id, $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::notFound('Work order not found.');
         }
         // Tenants: only their own requests
         if ($user['role'] === 'tenant') {

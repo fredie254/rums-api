@@ -20,11 +20,13 @@ function registerOccupancyLogRoutes(Router $router, PDO $db): void
         $perPage   = Router::perPage(100);
         $offset    = ($page - 1) * $perPage;
 
+        $lid    = ApiAuth::landlordId($db);
         $where  = ['ol.event_date BETWEEN ? AND ?'];
         $params = [$dateFrom, $dateTo];
 
         if ($propId)    { $where[] = 'ol.property_id = ?'; $params[] = $propId; }
         if ($eventType) { $where[] = 'ol.event_type = ?';  $params[] = $eventType; }
+        if ($lid)       { $where[] = 'p.landlord_id = ?';  $params[] = $lid; }
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
@@ -63,6 +65,13 @@ function registerOccupancyLogRoutes(Router $router, PDO $db): void
         ApiAuth::requireScope($db, 'read:properties');
         $body   = Router::body();
         $user   = ApiAuth::user();
+
+        $lid = ApiAuth::landlordId($db);
+        if ($lid && !empty($body['property_id'])) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$body['property_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Property does not belong to you.');
+        }
         $unitId = (int)($body['unit_id'] ?? 0) ?: null;
 
         $tenantId = null;

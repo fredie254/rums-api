@@ -24,13 +24,34 @@ function registerLandlordRoutes(Router $router, PDO $db): void
     $router->get('landlords', function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
 
+        // A landlord can only see their own profile
+        $callerLid = ApiAuth::landlordId($db);
+        if ($callerLid !== null) {
+            $stmt = $db->prepare(
+                "SELECT l.id, l.id_number, l.id_number_hash, l.kra_pin, l.bank_name,
+                        l.bank_account, l.bank_branch, l.mpesa_number, l.commission_rate, l.notes,
+                        l.user_id, u.name, u.email, u.phone, u.status AS user_status,
+                        (SELECT COUNT(*) FROM properties WHERE landlord_id = l.id) AS property_count,
+                        (SELECT COUNT(*) FROM units un JOIN properties pp ON pp.id = un.property_id
+                         WHERE pp.landlord_id = l.id AND un.status = 'occupied') AS occupied_units
+                 FROM landlords l JOIN users u ON u.id = l.user_id
+                 WHERE l.id = ?"
+            );
+            $stmt->execute([$callerLid]);
+            $row = $stmt->fetch();
+            $rows = $row ? [landlordDecrypt($row)] : [];
+            ApiResponse::paginated([
+                'data' => $rows,
+                'meta' => ['total' => count($rows), 'per_page' => 1, 'current_page' => 1, 'total_pages' => 1],
+            ]);
+            return;
+        }
+
         $search  = Router::strParam('search');
         $userId  = Router::intParam('user_id') ?: 0;
         $page    = Router::page();
         $perPage = Router::perPage();
 
-        // Use users as the base so every user whose role='landlord' appears,
-        // even if they have no landlords profile row yet.
         $where  = ["u.role = 'landlord'"];
         $params = [];
         if ($search) {
@@ -197,6 +218,11 @@ function registerLandlordRoutes(Router $router, PDO $db): void
     // ── View single ───────────────────────────────────────────
     $router->get('landlords/{id}', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
+        // Landlords can only view their own profile
+        $callerLid = ApiAuth::landlordId($db);
+        if ($callerLid !== null && $callerLid !== (int)$id) {
+            ApiResponse::notFound('Landlord not found.');
+        }
 
         // Try by landlords.id first (the canonical key)
         $stmt = $db->prepare("

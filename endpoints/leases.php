@@ -19,6 +19,18 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 {
     $svc = new LeaseService($db);
 
+    // Asserts a lease belongs to the landlord's portfolio.
+    $ownLease = static function (int $leaseId, int $lid) use ($db): void {
+        $ok = $db->prepare(
+            "SELECT 1 FROM leases l
+             JOIN units u ON u.id = l.unit_id
+             JOIN properties pr ON pr.id = u.property_id
+             WHERE l.id = ? AND pr.landlord_id = ? LIMIT 1"
+        );
+        $ok->execute([$leaseId, $lid]);
+        if (!$ok->fetchColumn()) ApiResponse::notFound('Lease not found.');
+    };
+
     // ── List ──────────────────────────────────────────────────
     $router->get('leases', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:leases');
@@ -49,13 +61,32 @@ function registerLeaseRoutes(Router $router, PDO $db): void
     $router->get('leases/expiring', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'read:leases');
         $days = Router::intParam('days', 30);
-        ApiResponse::ok($svc->getExpiring($days), "Leases expiring within $days days.");
+        $lid  = ApiAuth::landlordId($db);
+        $rows = $svc->getExpiring($days);
+        // Filter to landlord's own leases when called by a landlord
+        if ($lid) {
+            $myProps = $db->query(
+                "SELECT id FROM properties WHERE landlord_id = $lid"
+            )->fetchAll(PDO::FETCH_COLUMN);
+            $rows = array_values(array_filter($rows, fn($r) => in_array((int)($r['property_id'] ?? 0), $myProps)));
+        }
+        ApiResponse::ok($rows, "Leases expiring within $days days.");
     });
 
     // ── Create ────────────────────────────────────────────────
     $router->post('leases', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:leases');
-        $res = $svc->create(Router::body());
+        $body = Router::body();
+        $lid  = ApiAuth::landlordId($db);
+        if ($lid && !empty($body['unit_id'])) {
+            $ok = $db->prepare(
+                "SELECT 1 FROM units u JOIN properties pr ON pr.id = u.property_id
+                 WHERE u.id = ? AND pr.landlord_id = ? LIMIT 1"
+            );
+            $ok->execute([(int)$body['unit_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Unit does not belong to your portfolio.');
+        }
+        $res = $svc->create($body);
         $res['success']
             ? ApiResponse::created(
                 ['id' => $res['id'], 'lease_number' => $res['lease_number']],
@@ -65,15 +96,19 @@ function registerLeaseRoutes(Router $router, PDO $db): void
     });
 
     // ── View single ───────────────────────────────────────────
-    $router->get('leases/{id}', function (string $id) use ($svc, $db) {
+    $router->get('leases/{id}', function (string $id) use ($svc, $db, $ownLease) {
         ApiAuth::requireScope($db, 'read:leases');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownLease((int)$id, $lid);
         $lease = $svc->find((int)$id);
         $lease ? ApiResponse::ok($lease) : ApiResponse::notFound('Lease not found.');
     });
 
     // ── Update terms / escalation ─────────────────────────────
-    $router->put('leases/{id}', function (string $id) use ($db) {
+    $router->put('leases/{id}', function (string $id) use ($db, $ownLease) {
         ApiAuth::requireScope($db, 'write:leases');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownLease((int)$id, $lid);
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip([
             'end_date', 'monthly_rent', 'payment_day', 'grace_period_days',
@@ -129,8 +164,10 @@ function registerLeaseRoutes(Router $router, PDO $db): void
     });
 
     // ── Documents: list ───────────────────────────────────────
-    $router->get('leases/{id}/documents', function (string $id) use ($db) {
+    $router->get('leases/{id}/documents', function (string $id) use ($db, $ownLease) {
         ApiAuth::requireScope($db, 'read:leases');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownLease((int)$id, $lid);
         $stmt = $db->prepare(
             "SELECT d.*, u.name AS uploaded_by_name
              FROM lease_documents d
@@ -143,8 +180,10 @@ function registerLeaseRoutes(Router $router, PDO $db): void
     });
 
     // ── Documents: attach ─────────────────────────────────────
-    $router->post('leases/{id}/documents', function (string $id) use ($db) {
+    $router->post('leases/{id}/documents', function (string $id) use ($db, $ownLease) {
         ApiAuth::requireScope($db, 'write:leases');
+        $lid = ApiAuth::landlordId($db);
+        if ($lid) $ownLease((int)$id, $lid);
         $body = Router::body();
         foreach (['original_name', 'file_path'] as $f) {
             if (empty($body[$f])) ApiResponse::unprocessable("Field '$f' is required.");

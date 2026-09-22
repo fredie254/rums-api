@@ -14,8 +14,13 @@ function registerExpenseRoutes(Router $router, PDO $db): void
     // ── Summary (static before parameterised) ────────────────────
     $router->get('expenses/summary', function () use ($db) {
         ApiAuth::requireScope($db, 'read:reports');
+        $lid  = ApiAuth::landlordId($db);
         $from = Router::strParam('date_from', date('Y-m-01'));
         $to   = Router::strParam('date_to',   date('Y-m-t'));
+
+        $lidFilter = $lid
+            ? "AND e.property_id IN (SELECT id FROM properties WHERE landlord_id = $lid)"
+            : '';
 
         $row = $db->prepare(
             "SELECT
@@ -25,8 +30,8 @@ function registerExpenseRoutes(Router $router, PDO $db): void
                 COALESCE(SUM(CASE WHEN status='paid'     THEN amount END),0) AS paid,
                 COALESCE(SUM(CASE WHEN status='rejected' THEN amount END),0) AS rejected,
                 COUNT(*) AS count
-             FROM expenses
-             WHERE expense_date BETWEEN ? AND ?"
+             FROM expenses e
+             WHERE e.expense_date BETWEEN ? AND ? $lidFilter"
         );
         $row->execute([$from, $to]);
         ApiResponse::ok($row->fetch(PDO::FETCH_ASSOC));
@@ -38,12 +43,13 @@ function registerExpenseRoutes(Router $router, PDO $db): void
         $page    = Router::page();
         $perPage = Router::perPage();
 
-        $from       = Router::strParam('date_from', date('Y-m-01'));
-        $to         = Router::strParam('date_to',   date('Y-m-t'));
-        $status     = Router::strParam('status');
-        $category   = Router::strParam('category');
-        $propId     = Router::intParam('property_id');
-        $landlordId = Router::intParam('landlord_id');
+        $from     = Router::strParam('date_from', date('Y-m-01'));
+        $to       = Router::strParam('date_to',   date('Y-m-t'));
+        $status   = Router::strParam('status');
+        $category = Router::strParam('category');
+        $propId   = Router::intParam('property_id');
+        // Force landlord filter from auth — never trust client-supplied landlord_id
+        $landlordId = ApiAuth::landlordId($db) ?? (Router::intParam('landlord_id') ?: null);
 
         $where  = ['e.expense_date BETWEEN ? AND ?'];
         $params = [$from, $to];
@@ -93,6 +99,13 @@ function registerExpenseRoutes(Router $router, PDO $db): void
         ApiAuth::requireScope($db, 'write:payments');
         $user = ApiAuth::user();
         $body = Router::body();
+
+        $lid = ApiAuth::landlordId($db);
+        if ($lid && !empty($body['property_id'])) {
+            $ok = $db->prepare("SELECT 1 FROM properties WHERE id = ? AND landlord_id = ? LIMIT 1");
+            $ok->execute([(int)$body['property_id'], $lid]);
+            if (!$ok->fetchColumn()) ApiResponse::forbidden('Property does not belong to you.');
+        }
 
         $required = ['category', 'description', 'amount', 'expense_date'];
         $missing  = [];
