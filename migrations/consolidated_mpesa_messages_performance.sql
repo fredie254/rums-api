@@ -1,38 +1,26 @@
 -- =============================================================================
--- RUMS Consolidated Migration
--- Covers: M-Pesa multi-landlord, message template customization, performance
--- =============================================================================
--- Run once on a fresh or existing database.
--- Safe to re-run: CREATE TABLE uses IF NOT EXISTS; ALTER TABLE uses IF NOT EXISTS
--- for columns and indexes where supported.
---
--- Order matters — run top to bottom:
---   1. New tables (mpesa_configs)
---   2. Column additions to existing tables
---   3. Constraints and indexes
---   4. Data patches
---   5. ANALYZE
+-- Consolidated migration — MySQL 5.7 compatible (no IF NOT EXISTS on columns/indexes)
+-- Covers: mpesa_configs, mpesa_transactions.lease_id,
+--         payments.uk_mpesa_receipt, message_templates.landlord_id,
+--         performance indexes
 -- =============================================================================
 
-SET FOREIGN_KEY_CHECKS = 0;
+SET NAMES utf8mb4;
+SET foreign_key_checks = 0;
 
 -- =============================================================================
 -- 1. mpesa_configs — per-landlord Safaricom credentials
 -- =============================================================================
--- Each landlord has their own shortcode (paybill/till).
--- A single shared callback/validate/confirm URL handles all landlords;
--- the BusinessShortCode field in each Safaricom payload identifies which
--- landlord's config to use.
 
 CREATE TABLE IF NOT EXISTS mpesa_configs (
     id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     landlord_id         INT UNSIGNED   NOT NULL,
     shortcode           VARCHAR(20)    NOT NULL,
-    shortcode_type      ENUM('paybill','till')         NOT NULL DEFAULT 'paybill',
+    shortcode_type      ENUM('paybill','till')       NOT NULL DEFAULT 'paybill',
     consumer_key        TEXT           NOT NULL,
     consumer_secret     TEXT           NOT NULL,
     passkey             TEXT           NOT NULL,
-    environment         ENUM('sandbox','production')   NOT NULL DEFAULT 'production',
+    environment         ENUM('sandbox','production') NOT NULL DEFAULT 'production',
     urls_registered     TINYINT(1)     NOT NULL DEFAULT 0,
     urls_registered_at  DATETIME       NULL,
     is_active           TINYINT(1)     NOT NULL DEFAULT 1,
@@ -50,21 +38,20 @@ CREATE TABLE IF NOT EXISTS mpesa_configs (
 
 
 -- =============================================================================
--- 2. mpesa_transactions — add lease_id column
+-- 2. mpesa_transactions — add lease_id column (dynamic, 5.7-safe)
 -- =============================================================================
--- Allows STK push callbacks to resolve the tenant directly without an extra
--- lookup through the payments table.
 
-ALTER TABLE mpesa_transactions
-    ADD COLUMN IF NOT EXISTS lease_id INT NULL AFTER payment_id;
-
--- Add FK only if the column was just added (safe because IF NOT EXISTS was used)
 SET @col_exists = (
     SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME   = 'mpesa_transactions'
       AND COLUMN_NAME  = 'lease_id'
 );
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE mpesa_transactions ADD COLUMN lease_id INT UNSIGNED NULL AFTER payment_id',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @fk_exists = (
     SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE
@@ -72,8 +59,7 @@ SET @fk_exists = (
       AND TABLE_NAME   = 'mpesa_transactions'
       AND CONSTRAINT_NAME = 'fk_mptx_lease'
 );
-
-SET @sql = IF(@col_exists > 0 AND @fk_exists = 0,
+SET @sql = IF(@fk_exists = 0,
     'ALTER TABLE mpesa_transactions ADD CONSTRAINT fk_mptx_lease FOREIGN KEY (lease_id) REFERENCES leases (id) ON DELETE SET NULL',
     'SELECT 1'
 );
@@ -83,9 +69,6 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- =============================================================================
 -- 3. payments — unique constraint on mpesa_receipt
 -- =============================================================================
--- Prevents double-recording when Safaricom retries the same C2B confirmation
--- simultaneously. NULL values are excluded from MySQL unique constraints, so
--- manual/non-Mpesa payments (mpesa_receipt = NULL) are unaffected.
 
 SET @idx_exists = (
     SELECT COUNT(*) FROM information_schema.STATISTICS
@@ -101,17 +84,21 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 
 -- =============================================================================
--- 4. message_templates — per-landlord customization
+-- 4. message_templates — per-landlord customization (dynamic, 5.7-safe)
 -- =============================================================================
--- landlord_id = NULL  →  global default managed by super admin (existing rows)
--- landlord_id = N     →  landlord N's custom override of that category+channel
 
-ALTER TABLE message_templates
-    ADD COLUMN IF NOT EXISTS landlord_id INT UNSIGNED NULL DEFAULT NULL
-        COMMENT 'NULL = global default; non-null = landlord custom override'
-        AFTER id;
+SET @col_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'message_templates'
+      AND COLUMN_NAME  = 'landlord_id'
+);
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE message_templates ADD COLUMN landlord_id INT UNSIGNED NULL DEFAULT NULL AFTER id',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- Foreign key (add only if the column exists and FK doesn't yet)
 SET @fk_exists = (
     SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE
     WHERE TABLE_SCHEMA = DATABASE()
@@ -124,7 +111,6 @@ SET @sql = IF(@fk_exists = 0,
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- One custom override per landlord per category+channel pair
 SET @idx_exists = (
     SELECT COUNT(*) FROM information_schema.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE()
@@ -139,59 +125,83 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 
 -- =============================================================================
--- 5. Performance indexes
+-- 5. Performance indexes (all dynamic, 5.7-safe)
 -- =============================================================================
--- Covers the most common WHERE / JOIN / ORDER BY patterns across the app.
--- IF NOT EXISTS prevents errors on re-run.
 
 -- invoices
-ALTER TABLE invoices
-    ADD INDEX IF NOT EXISTS idx_inv_status     (status),
-    ADD INDEX IF NOT EXISTS idx_inv_due_date   (due_date),
-    ADD INDEX IF NOT EXISTS idx_inv_lease_stat (lease_id, status),
-    ADD INDEX IF NOT EXISTS idx_inv_created    (created_at);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='invoices' AND INDEX_NAME='idx_inv_status')=0,'ALTER TABLE invoices ADD INDEX idx_inv_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='invoices' AND INDEX_NAME='idx_inv_due_date')=0,'ALTER TABLE invoices ADD INDEX idx_inv_due_date (due_date)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='invoices' AND INDEX_NAME='idx_inv_lease_stat')=0,'ALTER TABLE invoices ADD INDEX idx_inv_lease_stat (lease_id, status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='invoices' AND INDEX_NAME='idx_inv_created')=0,'ALTER TABLE invoices ADD INDEX idx_inv_created (created_at)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- leases
-ALTER TABLE leases
-    ADD INDEX IF NOT EXISTS idx_lease_status      (status),
-    ADD INDEX IF NOT EXISTS idx_lease_status_end  (status, end_date),
-    ADD INDEX IF NOT EXISTS idx_lease_unit_status (unit_id, status);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='leases' AND INDEX_NAME='idx_lease_status')=0,'ALTER TABLE leases ADD INDEX idx_lease_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='leases' AND INDEX_NAME='idx_lease_status_end')=0,'ALTER TABLE leases ADD INDEX idx_lease_status_end (status, end_date)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='leases' AND INDEX_NAME='idx_lease_unit_status')=0,'ALTER TABLE leases ADD INDEX idx_lease_unit_status (unit_id, status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- payments
-ALTER TABLE payments
-    ADD INDEX IF NOT EXISTS idx_pay_status      (status),
-    ADD INDEX IF NOT EXISTS idx_pay_date        (payment_date),
-    ADD INDEX IF NOT EXISTS idx_pay_stat_date   (status, payment_date),
-    ADD INDEX IF NOT EXISTS idx_pay_tenant_stat (tenant_id, status);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payments' AND INDEX_NAME='idx_pay_status')=0,'ALTER TABLE payments ADD INDEX idx_pay_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payments' AND INDEX_NAME='idx_pay_date')=0,'ALTER TABLE payments ADD INDEX idx_pay_date (payment_date)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payments' AND INDEX_NAME='idx_pay_stat_date')=0,'ALTER TABLE payments ADD INDEX idx_pay_stat_date (status, payment_date)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payments' AND INDEX_NAME='idx_pay_tenant_stat')=0,'ALTER TABLE payments ADD INDEX idx_pay_tenant_stat (tenant_id, status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- units
-ALTER TABLE units
-    ADD INDEX IF NOT EXISTS idx_unit_status      (status),
-    ADD INDEX IF NOT EXISTS idx_unit_prop_status (property_id, status);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='units' AND INDEX_NAME='idx_unit_status')=0,'ALTER TABLE units ADD INDEX idx_unit_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='units' AND INDEX_NAME='idx_unit_prop_status')=0,'ALTER TABLE units ADD INDEX idx_unit_prop_status (property_id, status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- maintenance_requests
-ALTER TABLE maintenance_requests
-    ADD INDEX IF NOT EXISTS idx_maint_status  (status),
-    ADD INDEX IF NOT EXISTS idx_maint_pri     (priority),
-    ADD INDEX IF NOT EXISTS idx_maint_statpri (status, priority),
-    ADD INDEX IF NOT EXISTS idx_maint_created (created_at);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='maintenance_requests' AND INDEX_NAME='idx_maint_status')=0,'ALTER TABLE maintenance_requests ADD INDEX idx_maint_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
--- notifications (unread badge — queried on every page load)
-ALTER TABLE notifications
-    ADD INDEX IF NOT EXISTS idx_notif_user_read (user_id, is_read),
-    ADD INDEX IF NOT EXISTS idx_notif_created   (created_at);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='maintenance_requests' AND INDEX_NAME='idx_maint_pri')=0,'ALTER TABLE maintenance_requests ADD INDEX idx_maint_pri (priority)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='maintenance_requests' AND INDEX_NAME='idx_maint_statpri')=0,'ALTER TABLE maintenance_requests ADD INDEX idx_maint_statpri (status, priority)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='maintenance_requests' AND INDEX_NAME='idx_maint_created')=0,'ALTER TABLE maintenance_requests ADD INDEX idx_maint_created (created_at)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+-- notifications
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='notifications' AND INDEX_NAME='idx_notif_user_read')=0,'ALTER TABLE notifications ADD INDEX idx_notif_user_read (user_id, is_read)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='notifications' AND INDEX_NAME='idx_notif_created')=0,'ALTER TABLE notifications ADD INDEX idx_notif_created (created_at)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- mpesa_configs
-ALTER TABLE mpesa_configs
-    ADD INDEX IF NOT EXISTS idx_mc_active (is_active);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='mpesa_configs' AND INDEX_NAME='idx_mc_active')=0,'ALTER TABLE mpesa_configs ADD INDEX idx_mc_active (is_active)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 -- properties
-ALTER TABLE properties
-    ADD INDEX IF NOT EXISTS idx_prop_status (status);
+SET @s = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='properties' AND INDEX_NAME='idx_prop_status')=0,'ALTER TABLE properties ADD INDEX idx_prop_status (status)','SELECT 1');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 
 
 -- =============================================================================
--- 6. Data patch — ensure existing message_templates rows are global defaults
+-- 6. Data patch
 -- =============================================================================
 UPDATE message_templates SET landlord_id = NULL WHERE landlord_id IS NULL;
 
@@ -206,14 +216,8 @@ ANALYZE TABLE
     units,
     maintenance_requests,
     notifications,
-    properties,
     mpesa_configs,
-    mpesa_transactions,
+    properties,
     message_templates;
 
-SET FOREIGN_KEY_CHECKS = 1;
-
--- Done. Verify with:
---   SHOW CREATE TABLE mpesa_configs;
---   SHOW INDEX FROM payments WHERE Key_name = 'uk_mpesa_receipt';
---   SHOW INDEX FROM leases WHERE Key_name LIKE 'idx_lease%';
+SET foreign_key_checks = 1;
