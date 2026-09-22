@@ -28,9 +28,10 @@ function registerOccupancyLogRoutes(Router $router, PDO $db): void
         if ($eventType) { $where[] = 'ol.event_type = ?';  $params[] = $eventType; }
         if ($lid)       { $where[] = 'p.landlord_id = ?';  $params[] = $lid; }
 
-        $w = 'WHERE ' . implode(' AND ', $where);
+        $w    = 'WHERE ' . implode(' AND ', $where);
+        $join = $lid ? 'LEFT JOIN properties p ON p.id = ol.property_id' : '';
 
-        $countStmt = $db->prepare("SELECT COUNT(*) FROM occupancy_logs ol $w");
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM occupancy_logs ol $join $w");
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 

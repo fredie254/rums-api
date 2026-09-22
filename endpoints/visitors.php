@@ -38,8 +38,9 @@ function registerVisitorRoutes(Router $router, PDO $db): void
         }
 
         $w = 'WHERE ' . implode(' AND ', $where);
+        $join = $lid ? 'LEFT JOIN properties p ON p.id = vl.property_id' : '';
 
-        $countStmt = $db->prepare("SELECT COUNT(*) FROM visitor_logs vl $w");
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM visitor_logs vl $join $w");
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 

@@ -134,7 +134,7 @@ class PaymentService extends BaseService
         );
     }
 
-    public function summary(string $dateFrom, string $dateTo, ?int $propertyId = null): array
+    public function summary(string $dateFrom, string $dateTo, ?int $propertyId = null, ?int $landlordId = null): array
     {
         $where  = "p.payment_date BETWEEN ? AND ?";
         $params = [$dateFrom, $dateTo];
@@ -142,6 +142,10 @@ class PaymentService extends BaseService
         if ($propertyId) {
             $where .= " AND u.property_id = ?";
             $params[] = $propertyId;
+        }
+        if ($landlordId) {
+            $where .= " AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = ?)";
+            $params[] = $landlordId;
         }
 
         $join = "LEFT JOIN leases l ON l.id = p.lease_id LEFT JOIN units u ON u.id = l.unit_id";

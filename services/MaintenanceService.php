@@ -232,14 +232,19 @@ class MaintenanceService extends BaseService
         );
     }
 
-    public function summary(?int $propertyId = null): array
+    public function summary(?int $propertyId = null, ?int $landlordId = null): array
     {
-        $where  = '1=1';
+        $conds  = [];
         $params = [];
         if ($propertyId) {
-            $where    = 'u.property_id = ?';
+            $conds[]  = 'u.property_id = ?';
             $params[] = $propertyId;
         }
+        if ($landlordId) {
+            $conds[]  = 'u.property_id IN (SELECT id FROM properties WHERE landlord_id = ?)';
+            $params[] = $landlordId;
+        }
+        $where = $conds ? implode(' AND ', $conds) : '1=1';
 
         return $this->fetchOne(
             "SELECT

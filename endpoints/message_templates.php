@@ -26,7 +26,12 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         $landlordId = ApiAuth::landlordId($db);
         if (!$landlordId) ApiResponse::forbidden('Only landlords can access effective templates.');
 
-        $rows = $svc()->listEffectiveTemplates($landlordId);
+        try {
+            $rows = $svc()->listEffectiveTemplates($landlordId);
+        } catch (Throwable) {
+            ApiResponse::serverError('Message templates not yet migrated. Please run migrations 015 and 018 on the server.');
+            return;
+        }
 
         // Append placeholder reference to each row
         $vars = templatePlaceholders();
@@ -44,8 +49,13 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         $landlordId = ApiAuth::landlordId($db);
         if (!$landlordId) ApiResponse::forbidden('Only landlords can save custom templates.');
 
-        $body   = Router::body();
-        $result = $svc()->upsertLandlordTemplate($landlordId, ApiAuth::userId(), $body);
+        $body = Router::body();
+        try {
+            $result = $svc()->upsertLandlordTemplate($landlordId, ApiAuth::userId(), $body);
+        } catch (Throwable) {
+            ApiResponse::serverError('Message templates not yet migrated. Please run migration 015 on the server.');
+            return;
+        }
 
         if (!$result['success']) {
             ApiResponse::unprocessable('Missing fields: ' . implode(', ', $result['errors'] ?? []));
@@ -124,9 +134,13 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         $landlordId = ApiAuth::landlordId($db);
         if (!$landlordId) ApiResponse::forbidden('Only landlords can access notification preferences.');
 
-        $stmt = $db->prepare("SELECT * FROM notification_preferences WHERE landlord_id = ?");
-        $stmt->execute([$landlordId]);
-        $prefs = $stmt->fetch();
+        try {
+            $stmt = $db->prepare("SELECT * FROM notification_preferences WHERE landlord_id = ?");
+            $stmt->execute([$landlordId]);
+            $prefs = $stmt->fetch();
+        } catch (Throwable) {
+            $prefs = false; // table not yet migrated — fall through to defaults
+        }
 
         // Return defaults if no row exists yet
         if (!$prefs) {
@@ -152,25 +166,30 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         $b = Router::body();
         $bool = fn($key, $default = 1) => isset($b[$key]) ? ($b[$key] ? 1 : 0) : $default;
 
-        $db->prepare(
-            "INSERT INTO notification_preferences
-                (landlord_id, email_enabled, sms_enabled, inapp_enabled,
-                 notify_payment, notify_maintenance, notify_lease_expiry, notify_overdue)
-             VALUES (?,?,?,?,?,?,?,?)
-             ON DUPLICATE KEY UPDATE
-                email_enabled     = VALUES(email_enabled),
-                sms_enabled       = VALUES(sms_enabled),
-                inapp_enabled     = VALUES(inapp_enabled),
-                notify_payment    = VALUES(notify_payment),
-                notify_maintenance  = VALUES(notify_maintenance),
-                notify_lease_expiry = VALUES(notify_lease_expiry),
-                notify_overdue    = VALUES(notify_overdue)"
-        )->execute([
-            $landlordId,
-            $bool('email_enabled'), $bool('sms_enabled'), $bool('inapp_enabled'),
-            $bool('notify_payment'), $bool('notify_maintenance'),
-            $bool('notify_lease_expiry'), $bool('notify_overdue'),
-        ]);
+        try {
+            $db->prepare(
+                "INSERT INTO notification_preferences
+                    (landlord_id, email_enabled, sms_enabled, inapp_enabled,
+                     notify_payment, notify_maintenance, notify_lease_expiry, notify_overdue)
+                 VALUES (?,?,?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE
+                    email_enabled     = VALUES(email_enabled),
+                    sms_enabled       = VALUES(sms_enabled),
+                    inapp_enabled     = VALUES(inapp_enabled),
+                    notify_payment    = VALUES(notify_payment),
+                    notify_maintenance  = VALUES(notify_maintenance),
+                    notify_lease_expiry = VALUES(notify_lease_expiry),
+                    notify_overdue    = VALUES(notify_overdue)"
+            )->execute([
+                $landlordId,
+                $bool('email_enabled'), $bool('sms_enabled'), $bool('inapp_enabled'),
+                $bool('notify_payment'), $bool('notify_maintenance'),
+                $bool('notify_lease_expiry'), $bool('notify_overdue'),
+            ]);
+        } catch (Throwable) {
+            ApiResponse::serverError('Notification preferences table not yet migrated. Please run migration 018.');
+            return;
+        }
 
         ApiResponse::ok(null, 'Notification preferences saved.');
     });
