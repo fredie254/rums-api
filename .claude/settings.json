@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.rums.ultimatesolutions.co.ke)",
+      "WebFetch(domain:rums.ultimatesolutions.co.ke)",
+      "Bash(curl -s -X GET \"https://api.rums.ultimatesolutions.co.ke/api/v1/health\" -H \"Accept: application/json\")",
+      "Bash(curl -s -X POST https://api.rums.ultimatesolutions.co.ke/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@rums.co.ke\",\"password\":\"#Kenya@60.\"}')",
+      "Bash(curl -s -X GET 'https://api.rums.ultimatesolutions.co.ke/api/v1/users?status=all&per_page=50' -H 'Authorization: Bearer f0a5b47ace97c5fba967d545423d1bb5cb0ec5aa5edbe1130af8c16e552a2237')",
+      "Bash(git -C d:/Nexus/Rental_api show HEAD~1:index.php)",
+      "Bash(git -C d:/Nexus/Rental_api diff HEAD~1 HEAD -- index.php)",
+      "Bash(awk '{print $1}')",
+      "Bash(git -C d:/Nexus/Rental_api diff HEAD~1 HEAD -- src/ApiAuth.php)",
+      "Bash(git -C d:/Nexus/Rental_api diff HEAD~1 HEAD -- endpoints/payments.php)",
+      "Bash(git -C d:/Nexus/Rental log --oneline -10)",
+      "Bash(grep -A 40 \"CREATE TABLE \\\\`properties\\\\`\" schema.sql)",
+      "Bash(git -C \"d:/Nexus/Rental_api\" diff --stat)",
+      "Bash(git -C \"d:/Nexus/Rental\" diff --stat)",
+      "Bash(git -C \"d:/Nexus/Rental_api\" log --oneline -3)",
+      "Bash(git -C \"d:/Nexus/Rental\" log --oneline -3)",
+      "Bash(git -C \"d:/Nexus/Rental_api\" diff services/ReportService.php)",
+      "Bash(cd /d)",
+      "Bash(dir RUMS\\\\Rental_api)",
+      "PowerShell(php -r \"echo password_hash\\('Rums@1234.', PASSWORD_BCRYPT, ['cost' => 10]\\);\")",
+      "Bash(grep -v '//.*$router')",
+      "Bash(php -l d:/RUMS/Rental_api/endpoints/security_incidents.php)",
+      "Bash(php -r ' *)"
+    ]
+  }
+}

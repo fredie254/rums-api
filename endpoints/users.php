@@ -61,7 +61,7 @@ function registerUserRoutes(Router $router, PDO $db): void
     $router->post('users', function () use ($db) {
         ApiAuth::requireRole($db, 'admin');
         $body    = Router::body();
-        $missing = array_filter(['name','email','role','password'], fn($f) => empty($body[$f]));
+        $missing = array_filter(['name','email','role'], fn($f) => empty($body[$f]));
         if ($missing) ApiResponse::unprocessable('Missing: ' . implode(', ', $missing));
 
         $exists = $db->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
@@ -73,7 +73,8 @@ function registerUserRoutes(Router $router, PDO $db): void
             ApiResponse::badRequest('Invalid role. Must be one of: ' . implode(', ', $validRoles));
         }
 
-        $hash = password_hash($body['password'], PASSWORD_BCRYPT, ['cost' => 10]);
+        $plain = !empty($body['password']) ? $body['password'] : 'Rums@1234.';
+        $hash  = password_hash($plain, PASSWORD_BCRYPT, ['cost' => 10]);
 
         $db->beginTransaction();
         try {
@@ -134,47 +135,54 @@ function registerUserRoutes(Router $router, PDO $db): void
     });
 
     $router->patch('users/{id}', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin');
+        ApiAuth::requireRole($db, 'admin', 'super_admin');
         $body    = Router::body();
-        $allowed = array_intersect_key($body, array_flip(['name','phone','role']));
+        $allowed = array_intersect_key($body, array_flip(['name', 'email', 'phone', 'role', 'status']));
 
         if (!empty($body['password'])) {
-            $allowed['password'] = password_hash($body['password'], PASSWORD_BCRYPT, ['cost' => 10]);
+            $allowed['password'] = password_hash($body['password'], PASSWORD_BCRYPT, ['cost' => 8]);
         }
 
         if (!$allowed) ApiResponse::badRequest('No valid fields to update.');
-        $set = implode(', ', array_map(fn($k) => "$k = ?", array_keys($allowed)));
-        $db->prepare("UPDATE users SET $set WHERE id = ?")
-           ->execute([...array_values($allowed), (int)$id]);
 
-        // Auto-create landlord/tenant profile if role just changed
-        if (!empty($body['role'])) {
-            if ($body['role'] === 'landlord') {
-                $chk = $db->prepare("SELECT id FROM landlords WHERE user_id = ?");
-                $chk->execute([(int)$id]);
-                if (!$chk->fetch()) {
-                    $db->prepare("INSERT INTO landlords (user_id) VALUES (?)")->execute([(int)$id]);
-                }
-            } elseif ($body['role'] === 'tenant') {
-                $chk = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
-                $chk->execute([(int)$id]);
-                if (!$chk->fetch()) {
-                    $u = $db->prepare("SELECT name, email, phone FROM users WHERE id = ?");
-                    $u->execute([(int)$id]);
-                    $uRow = $u->fetch();
-                    if ($uRow) {
-                        $parts = explode(' ', trim($uRow['name']), 2);
-                        $db->prepare(
-                            "INSERT INTO tenants (user_id, first_name, last_name, email, phone, status)
-                             VALUES (?,?,?,?,?,'active')"
-                        )->execute([(int)$id, $parts[0], $parts[1] ?? '', $uRow['email'], $uRow['phone']]);
+        try {
+            $set = implode(', ', array_map(fn($k) => "$k = ?", array_keys($allowed)));
+            $db->prepare("UPDATE users SET $set WHERE id = ?")
+               ->execute([...array_values($allowed), (int)$id]);
+
+            // Auto-create landlord/tenant profile if role just changed
+            if (!empty($body['role'])) {
+                if ($body['role'] === 'landlord') {
+                    $chk = $db->prepare("SELECT id FROM landlords WHERE user_id = ?");
+                    $chk->execute([(int)$id]);
+                    if (!$chk->fetch()) {
+                        $db->prepare("INSERT INTO landlords (user_id) VALUES (?)")->execute([(int)$id]);
+                    }
+                } elseif ($body['role'] === 'tenant') {
+                    $chk = $db->prepare("SELECT id FROM tenants WHERE user_id = ?");
+                    $chk->execute([(int)$id]);
+                    if (!$chk->fetch()) {
+                        $u = $db->prepare("SELECT name, email, phone FROM users WHERE id = ?");
+                        $u->execute([(int)$id]);
+                        $uRow = $u->fetch();
+                        if ($uRow) {
+                            $parts = explode(' ', trim($uRow['name']), 2);
+                            $db->prepare(
+                                "INSERT INTO tenants (user_id, first_name, last_name, email, phone, status)
+                                 VALUES (?,?,?,?,?,'active')"
+                            )->execute([(int)$id, $parts[0], $parts[1] ?? '', $uRow['email'], $uRow['phone']]);
+                        }
                     }
                 }
             }
-        }
 
-        // Role or name change — purge cached tokens so permissions update immediately
-        ApiAuth::invalidateUserTokens($db, (int)$id);
+            // Purge cached tokens so role/status changes take effect immediately
+            if (!empty($body['role']) || !empty($body['status']) || !empty($body['password'])) {
+                ApiAuth::invalidateUserTokens($db, (int)$id);
+            }
+        } catch (\Throwable $e) {
+            ApiResponse::serverError('Failed to update user: ' . $e->getMessage());
+        }
 
         ApiResponse::ok(null, 'User updated.');
     });

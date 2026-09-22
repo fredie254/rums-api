@@ -2,6 +2,7 @@
 /**
  * Security incidents endpoints
  *
+ * GET    /api/v1/security/dashboard               KPI snapshot for security role
  * GET    /api/v1/security-incidents               list (date_from, date_to, property_id, severity, resolved)
  * GET    /api/v1/security-incidents/{id}          single
  * POST   /api/v1/security-incidents               create
@@ -10,7 +11,101 @@
  */
 function registerSecurityIncidentRoutes(Router $router, PDO $db): void
 {
-    $router->get('security-incidents', function () use ($db) {
+    // ── Security Dashboard ─────────────────────────────────────
+    $router->get('security/dashboard', function () use ($db) {
+        ApiAuth::requireScope($db, 'read:properties');
+
+        $today    = date('Y-m-d');
+        $month0   = date('Y-m-01');
+        $propId   = Router::intParam('property_id') ?: 0;
+        $pf       = $propId ? "AND property_id = $propId" : '';
+        $pfSi     = $propId ? "AND si.property_id = $propId" : '';
+        $pfVl     = $propId ? "AND vl.property_id = $propId" : '';
+
+        // ── Visitors: today's snapshot ─────────────────────────
+        $visitors = $db->query(
+            "SELECT
+                COALESCE(COUNT(*), 0)                                         AS total_today,
+                COALESCE(SUM(status = 'in'), 0)                               AS currently_inside,
+                COALESCE(SUM(status = 'overstay'), 0)                         AS overstays,
+                COALESCE(SUM(status = 'out'), 0)                              AS checked_out_today,
+                COALESCE(SUM(DATE(check_in) = '$today'), 0)                   AS new_checkins_today
+             FROM visitor_logs vl
+             WHERE DATE(vl.check_in) = '$today' $pfVl"
+        )->fetch();
+
+        // ── Visitors: recent (last 7 days) ─────────────────────
+        $visitorTrend = $db->query(
+            "SELECT DATE(check_in) AS day, COUNT(*) AS count
+             FROM visitor_logs vl
+             WHERE DATE(check_in) >= DATE_SUB('$today', INTERVAL 6 DAY) $pfVl
+             GROUP BY day ORDER BY day"
+        )->fetchAll();
+
+        // ── Incidents: current month ───────────────────────────
+        $incidents = $db->query(
+            "SELECT
+                COALESCE(COUNT(*), 0)                               AS total_this_month,
+                COALESCE(SUM(si.resolved = 0), 0)                   AS unresolved,
+                COALESCE(SUM(si.severity = 'critical' AND si.resolved = 0), 0) AS critical_open,
+                COALESCE(SUM(si.severity = 'high'     AND si.resolved = 0), 0) AS high_open,
+                COALESCE(SUM(si.severity = 'medium'   AND si.resolved = 0), 0) AS medium_open,
+                COALESCE(SUM(si.severity = 'low'      AND si.resolved = 0), 0) AS low_open
+             FROM security_incidents si
+             WHERE DATE(si.incident_date) BETWEEN '$month0' AND '$today' $pfSi"
+        )->fetch();
+
+        // ── Recent unresolved incidents (latest 5) ─────────────
+        $recentIncidents = $db->query(
+            "SELECT si.id, si.incident_type, si.severity, si.incident_date,
+                    si.description, p.name AS property_name, si.resolved
+             FROM security_incidents si
+             LEFT JOIN properties p ON p.id = si.property_id
+             WHERE si.resolved = 0 $pfSi
+             ORDER BY FIELD(si.severity,'critical','high','medium','low'), si.incident_date DESC
+             LIMIT 5"
+        )->fetchAll();
+
+        // ── Unit occupancy snapshot ────────────────────────────
+        $occupancy = $db->query(
+            "SELECT
+                COALESCE(COUNT(*), 0)                      AS total_units,
+                COALESCE(SUM(status = 'occupied'), 0)      AS occupied,
+                COALESCE(SUM(status = 'available'), 0)     AS available,
+                COALESCE(SUM(status = 'maintenance'), 0)   AS maintenance
+             FROM units" . ($propId ? " WHERE property_id = $propId" : '')
+        )->fetch();
+
+        // ── Today's activity feed ──────────────────────────────
+        $activityToday = $db->query(
+            "SELECT 'visitor_checkin' AS type, visitor_name AS label,
+                    check_in AS event_time, p.name AS property_name
+             FROM visitor_logs vl
+             LEFT JOIN properties p ON p.id = vl.property_id
+             WHERE DATE(vl.check_in) = '$today' $pfVl
+             UNION ALL
+             SELECT 'incident' AS type, incident_type AS label,
+                    incident_date AS event_time, p.name AS property_name
+             FROM security_incidents si
+             LEFT JOIN properties p ON p.id = si.property_id
+             WHERE DATE(si.incident_date) = '$today' $pfSi
+             ORDER BY event_time DESC
+             LIMIT 20"
+        )->fetchAll();
+
+        ApiResponse::ok([
+            'visitors'         => $visitors,
+            'visitor_trend'    => $visitorTrend,
+            'incidents'        => $incidents,
+            'recent_incidents' => $recentIncidents,
+            'occupancy'        => $occupancy,
+            'activity_today'   => $activityToday,
+        ]);
+    });
+
+
+    // ── Shared handlers ────────────────────────────────────────
+    $listIncidents = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
 
         $dateFrom = Router::strParam('date_from') ?: date('Y-m-01');
@@ -60,9 +155,9 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
             'current_page' => $page,
             'total_pages'  => max(1, (int)ceil($total / $perPage)),
         ]);
-    });
+    };
 
-    $router->get('security-incidents/{id}', function (string $id) use ($db) {
+    $getIncident = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         try {
             $stmt = $db->prepare(
@@ -79,19 +174,15 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
             ApiResponse::serverError('Failed to load incident.', $e);
         }
         $row ? ApiResponse::ok($row) : ApiResponse::notFound('Incident not found.');
-    });
+    };
 
-    $router->post('security-incidents', function () use ($db) {
+    $createIncident = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $body = Router::body();
         $user = ApiAuth::user();
 
-        if (empty($body['incident_type'])) {
-            ApiResponse::unprocessable('incident_type is required.');
-        }
-        if (empty($body['description'])) {
-            ApiResponse::unprocessable('description is required.');
-        }
+        if (empty($body['incident_type'])) ApiResponse::unprocessable('incident_type is required.');
+        if (empty($body['description']))   ApiResponse::unprocessable('description is required.');
 
         try {
             $db->prepare(
@@ -102,13 +193,13 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
             )->execute([
                 (int)($body['property_id'] ?? 0) ?: null,
                 (int)($body['unit_id']     ?? 0) ?: null,
-                $body['incident_type']       ?? 'other',
-                $body['severity']            ?? 'medium',
-                $body['incident_date']       ?? date('Y-m-d H:i:s'),
-                $body['description']         ?? '',
-                $body['persons_involved']    ?? null,
-                $body['action_taken']        ?? null,
-                $body['police_ref']          ?? null,
+                $body['incident_type']    ?? 'other',
+                $body['severity']         ?? 'medium',
+                $body['incident_date']    ?? date('Y-m-d H:i:s'),
+                $body['description']      ?? '',
+                $body['persons_involved'] ?? null,
+                $body['action_taken']     ?? null,
+                $body['police_ref']       ?? null,
                 $user['id'],
             ]);
         } catch (Throwable $e) {
@@ -116,9 +207,9 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
         }
 
         ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Incident reported.');
-    });
+    };
 
-    $router->patch('security-incidents/{id}', function (string $id) use ($db) {
+    $updateIncident = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip(['action_taken', 'police_ref', 'persons_involved']));
@@ -131,9 +222,9 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
             ApiResponse::serverError('Failed to update incident.', $e);
         }
         ApiResponse::ok(null, 'Incident updated.');
-    });
+    };
 
-    $router->post('security-incidents/{id}/resolve', function (string $id) use ($db) {
+    $resolveIncident = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $notes = Router::body()['resolution_notes'] ?? null;
         try {
@@ -147,5 +238,21 @@ function registerSecurityIncidentRoutes(Router $router, PDO $db): void
             ApiResponse::serverError('Failed to resolve incident.', $e);
         }
         ApiResponse::ok(null, 'Incident resolved.');
-    });
+    };
+
+    // ── Register under both canonical and security/ prefix ───────
+    $router->get('security-incidents',              $listIncidents);
+    $router->get('security/incidents',              $listIncidents);
+
+    $router->get('security-incidents/{id}',         $getIncident);
+    $router->get('security/incidents/{id}',         $getIncident);
+
+    $router->post('security-incidents',             $createIncident);
+    $router->post('security/incidents',             $createIncident);
+
+    $router->patch('security-incidents/{id}',       $updateIncident);
+    $router->patch('security/incidents/{id}',       $updateIncident);
+
+    $router->post('security-incidents/{id}/resolve', $resolveIncident);
+    $router->post('security/incidents/{id}/resolve', $resolveIncident);
 }

@@ -2,23 +2,27 @@
 /**
  * Visitor log endpoints
  *
- * GET    /api/v1/visitors                list (date, property_id, status, search)
- * POST   /api/v1/visitors                check-in
- * PATCH  /api/v1/visitors/{id}/checkout  check out
- * PATCH  /api/v1/visitors/{id}/overstay  flag as overstay
+ * GET    /api/v1/visitors                      list (date, property_id, status, search)
+ * GET    /api/v1/security/visitors             alias — same handler
+ * POST   /api/v1/visitors                      check-in
+ * POST   /api/v1/security/visitors             alias — same handler
+ * PATCH  /api/v1/visitors/{id}/checkout        check out
+ * PATCH  /api/v1/security/visitors/{id}/checkout alias
+ * PATCH  /api/v1/visitors/{id}/overstay        flag as overstay
+ * PATCH  /api/v1/security/visitors/{id}/overstay alias
  */
 function registerVisitorRoutes(Router $router, PDO $db): void
 {
-    $router->get('visitors', function () use ($db) {
+    $list = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
 
-        $date       = Router::strParam('date');
-        $propId     = Router::intParam('property_id') ?: 0;
-        $status     = Router::strParam('status');
-        $search     = Router::strParam('search');
-        $page       = Router::page();
-        $perPage    = Router::perPage(50);
-        $offset     = ($page - 1) * $perPage;
+        $date    = Router::strParam('date');
+        $propId  = Router::intParam('property_id') ?: 0;
+        $status  = Router::strParam('status');
+        $search  = Router::strParam('search');
+        $page    = Router::page();
+        $perPage = Router::perPage(50);
+        $offset  = ($page - 1) * $perPage;
 
         $where  = ['1=1'];
         $params = [];
@@ -53,24 +57,22 @@ function registerVisitorRoutes(Router $router, PDO $db): void
         $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
         $stmt->bindValue(count($params) + 2, $offset,  PDO::PARAM_INT);
         $stmt->execute();
-        $rows = $stmt->fetchAll();
 
-        ApiResponse::ok($rows, '', [
+        ApiResponse::ok($stmt->fetchAll(), '', [
             'total'        => $total,
             'per_page'     => $perPage,
             'current_page' => $page,
             'total_pages'  => max(1, (int)ceil($total / $perPage)),
         ]);
-    });
+    };
 
-    $router->post('visitors', function () use ($db) {
+    $checkIn = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
-        $body    = Router::body();
-        $user    = ApiAuth::user();
-        $propId  = (int)($body['property_id'] ?? 0) ?: null;
-        $hostName= $body['host_name'] ?? null;
+        $body     = Router::body();
+        $user     = ApiAuth::user();
+        $propId   = (int)($body['property_id'] ?? 0) ?: null;
+        $hostName = $body['host_name'] ?? null;
 
-        // Resolve unit_id and tenant_id from property + host_name (treated as unit_number)
         $unitId   = null;
         $tenantId = null;
         if ($propId && $hostName) {
@@ -85,8 +87,6 @@ function registerVisitorRoutes(Router $router, PDO $db): void
                 $tenantId = $tr ? (int)$tr['tenant_id'] : null;
             }
         }
-
-        $checkIn = $body['check_in'] ?? date('Y-m-d H:i:s');
 
         $db->prepare(
             "INSERT INTO visitor_logs
@@ -105,29 +105,41 @@ function registerVisitorRoutes(Router $router, PDO $db): void
             $body['vehicle_reg']     ?? null,
             $body['purpose']         ?? '',
             $hostName,
-            $checkIn,
+            $body['check_in']        ?? date('Y-m-d H:i:s'),
             $body['badge_no']        ?? null,
             $body['notes']           ?? null,
             $user['id'],
         ]);
 
-        $newId = (int)$db->lastInsertId();
-        ApiResponse::created(['id' => $newId], 'Visitor checked in.');
-    });
+        ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Visitor checked in.');
+    };
 
-    $router->patch('visitors/{id}/checkout', function (string $id) use ($db) {
+    $checkout = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $db->prepare(
             "UPDATE visitor_logs SET status='out', check_out=NOW(), updated_at=NOW() WHERE id=? AND status='in'"
         )->execute([(int)$id]);
         ApiResponse::ok(null, 'Visitor checked out.');
-    });
+    };
 
-    $router->patch('visitors/{id}/overstay', function (string $id) use ($db) {
+    $overstay = function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
         $db->prepare(
             "UPDATE visitor_logs SET status='overstay', updated_at=NOW() WHERE id=? AND status='in'"
         )->execute([(int)$id]);
         ApiResponse::ok(null, 'Visitor flagged as overstay.');
-    });
+    };
+
+    // ── Register under both canonical and security/ prefix ───────
+    $router->get('visitors',                        $list);
+    $router->get('security/visitors',               $list);
+
+    $router->post('visitors',                       $checkIn);
+    $router->post('security/visitors',              $checkIn);
+
+    $router->patch('visitors/{id}/checkout',        $checkout);
+    $router->patch('security/visitors/{id}/checkout', $checkout);
+
+    $router->patch('visitors/{id}/overstay',        $overstay);
+    $router->patch('security/visitors/{id}/overstay', $overstay);
 }

@@ -18,7 +18,7 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `rums`
+
 --
 
 -- --------------------------------------------------------
@@ -2701,13 +2701,13 @@ CREATE TABLE `leases` (
   `penalty_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
   `terms` text COLLATE utf8mb4_unicode_ci,
   `notes` text COLLATE utf8mb4_unicode_ci,
-  `lease_type` enum('fixed','periodic','month_to_month') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
+  `lease_type` enum('fixed-term','periodic','commercial','furnished') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed-term',
   `template_id` int UNSIGNED DEFAULT NULL,
   `renewed_from_id` int UNSIGNED DEFAULT NULL,
   `notice_period_days` smallint UNSIGNED NOT NULL DEFAULT '30',
   `escalation_type` enum('none','fixed','percentage') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
   `escalation_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
-  `escalation_frequency` enum('annually','semi_annually','quarterly') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'annually',
+  `escalation_frequency` enum('annually','biannually','quarterly') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'annually',
   `next_escalation_date` date DEFAULT NULL,
   `signed_at` datetime DEFAULT NULL,
   `signed_by` int UNSIGNED DEFAULT NULL,
@@ -2722,7 +2722,7 @@ CREATE TABLE `leases` (
 --
 
 INSERT INTO `leases` (`id`, `lease_number`, `unit_id`, `tenant_id`, `start_date`, `end_date`, `monthly_rent`, `deposit_amount`, `deposit_paid_date`, `payment_day`, `grace_period_days`, `penalty_rate`, `terms`, `notes`, `lease_type`, `template_id`, `renewed_from_id`, `notice_period_days`, `escalation_type`, `escalation_rate`, `escalation_frequency`, `next_escalation_date`, `signed_at`, `signed_by`, `status`, `termination_reason`, `terminated_at`, `created_at`) VALUES
-(1, 'LSE-2026-00001', 1, 1, '2026-06-01', '2027-06-16', 10000.00, 12000.00, NULL, 1, 5, 0.00, '', NULL, 'fixed', NULL, NULL, 30, 'none', 0.00, 'annually', NULL, NULL, NULL, 'active', NULL, NULL, '2026-06-17 10:03:25');
+(1, 'LSE-2026-00001', 1, 1, '2026-06-01', '2027-06-16', 10000.00, 12000.00, NULL, 1, 5, 0.00, '', NULL, 'fixed-term', NULL, NULL, 30, 'none', 0.00, 'annually', NULL, NULL, NULL, 'active', NULL, NULL, '2026-06-17 10:03:25');
 
 -- --------------------------------------------------------
 
@@ -3214,13 +3214,15 @@ CREATE TABLE `users` (
 
 --
 -- Dumping data for table `users`
+-- Default password for all system-created users: Rums@1234.
+-- bcrypt hash (cost 10): $2y$10$7VQexY2KYuPYobyjpYU3LuE1nrvvYw3b5q2aXvqPH4h9XLS..U7Ke
 --
 
 INSERT INTO `users` (`id`, `name`, `email`, `phone`, `role`, `password`, `status`, `last_login`, `created_at`) VALUES
 (1, 'System Admin', 'admin@rums.co.ke', NULL, 'admin', '$2y$12$dvYzJi3spkgfX2ft/Br99OzzdeM5GjoZjLnCoMVOh1VjYuiQEOCqm', 'active', '2026-06-18 00:11:54', '2026-06-16 21:14:17'),
-(2, 'Kamau Joseph Waigajo', 'waiganjo@rums.co.ke', '0718511337', 'landlord', '$2y$10$zBKgkBjzjJ8b3Zo3lazdtO4yYEmJcnSbTHEk2z06Iy/P/525DzIxK', 'active', '2026-06-17 09:29:11', '2026-06-17 06:43:18'),
-(3, 'Cecil Kiptum', 'cecil@rums.co.ke', '0710000000', 'tenant', '$2y$10$ptIXO4St5tJLLjoMnJbYP.hWP0y6TY9Vaja4gdtBeCNpngY8No94m', 'active', '2026-06-18 00:08:39', '2026-06-17 09:48:30'),
-(4, 'kiprono john', 'kiprono@rums.co.ke', NULL, 'tenant', '$2y$10$06m0g1dLkzqV9LZ1OcpPIO7mnbDOwk2DR1x6hcoS1sJ9oBIxRw9cW', 'active', NULL, '2026-06-17 10:02:22');
+(2, 'Kamau Joseph Waigajo', 'waiganjo@rums.co.ke', '0718511337', 'landlord', '$2y$10$7VQexY2KYuPYobyjpYU3LuE1nrvvYw3b5q2aXvqPH4h9XLS..U7Ke', 'active', '2026-06-17 09:29:11', '2026-06-17 06:43:18'),
+(3, 'Cecil Kiptum', 'cecil@rums.co.ke', '0710000000', 'tenant', '$2y$10$7VQexY2KYuPYobyjpYU3LuE1nrvvYw3b5q2aXvqPH4h9XLS..U7Ke', 'active', '2026-06-18 00:08:39', '2026-06-17 09:48:30'),
+(4, 'kiprono john', 'kiprono@rums.co.ke', NULL, 'tenant', '$2y$10$7VQexY2KYuPYobyjpYU3LuE1nrvvYw3b5q2aXvqPH4h9XLS..U7Ke', 'active', NULL, '2026-06-17 10:02:22');
 
 -- --------------------------------------------------------
 

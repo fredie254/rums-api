@@ -644,12 +644,12 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
 
         $rows = $db->query(
             "SELECT mc.*,
-                    CONCAT(u.first_name, ' ', u.last_name) AS landlord_name,
+                    u.name AS landlord_name,
                     u.email AS landlord_email
              FROM mpesa_configs mc
              JOIN landlords l ON l.id = mc.landlord_id
              JOIN users u ON u.id = l.user_id
-             ORDER BY u.first_name, u.last_name"
+             ORDER BY u.name"
         )->fetchAll();
 
         // Mask credentials before returning — never expose keys in list view
@@ -663,13 +663,26 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         ApiResponse::ok($rows);
     });
 
+    // List landlords without a config (must be before /{id} so the literal path wins)
+    $router->get('mpesa/configs/unregistered-landlords', function () use ($db) {
+        ApiAuth::requireRole($db, 'admin', 'super_admin');
+        $rows = $db->query(
+            "SELECT l.id, u.name, u.email
+             FROM landlords l
+             JOIN users u ON u.id = l.user_id
+             WHERE l.id NOT IN (SELECT landlord_id FROM mpesa_configs)
+             ORDER BY u.name"
+        )->fetchAll();
+        ApiResponse::ok($rows);
+    });
+
     // Get single config (credentials unmasked for editing)
     $router->get('mpesa/configs/{id}', function (int $id) use ($db) {
         ApiAuth::requireRole($db, 'admin', 'super_admin');
 
         $stmt = $db->prepare(
             "SELECT mc.*,
-                    CONCAT(u.first_name, ' ', u.last_name) AS landlord_name,
+                    u.name AS landlord_name,
                     u.email AS landlord_email
              FROM mpesa_configs mc
              JOIN landlords l ON l.id = mc.landlord_id
@@ -800,16 +813,4 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         }
     });
 
-    // List landlords without a config (for the "Add Config" dropdown)
-    $router->get('mpesa/configs/unregistered-landlords', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'super_admin');
-        $rows = $db->query(
-            "SELECT l.id, CONCAT(u.first_name, ' ', u.last_name) AS name, u.email
-             FROM landlords l
-             JOIN users u ON u.id = l.user_id
-             WHERE l.id NOT IN (SELECT landlord_id FROM mpesa_configs)
-             ORDER BY u.first_name"
-        )->fetchAll();
-        ApiResponse::ok($rows);
-    });
 }

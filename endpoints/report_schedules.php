@@ -17,7 +17,7 @@ function registerReportScheduleRoutes(Router $router, PDO $db): void
     $router->get('report-schedules', function () use ($db, $requireAdmin) {
         $requireAdmin();
         $stmt = $db->query(
-            "SELECT rs.*, CONCAT(u.first_name,' ',u.last_name) AS created_by_name
+            "SELECT rs.*, u.name AS created_by_name
              FROM report_schedules rs
              LEFT JOIN users u ON u.id = rs.created_by
              ORDER BY rs.name"
@@ -67,7 +67,7 @@ function registerReportScheduleRoutes(Router $router, PDO $db): void
     $router->get('report-schedules/{id}', function (string $id) use ($db, $requireAdmin) {
         $requireAdmin();
         $stmt = $db->prepare(
-            "SELECT rs.*, CONCAT(u.first_name,' ',u.last_name) AS created_by_name
+            "SELECT rs.*, u.name AS created_by_name
              FROM report_schedules rs
              LEFT JOIN users u ON u.id = rs.created_by
              WHERE rs.id = ?"

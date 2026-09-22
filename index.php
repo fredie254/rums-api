@@ -115,6 +115,11 @@ registerMpesaPublicRoutes($router, $db);
 // ────────────────────────────────────────────────────────────
 $router->guard(fn() => ApiAuth::require($db));
 
+// ── CSV Imports (must be before properties/units/landlords so
+//    literal "import" segment doesn't match the {id} pattern)  ─
+require_once __DIR__ . '/endpoints/imports.php';
+registerImportRoutes($router, $db);
+
 // ── Properties ────────────────────────────────────────────────
 require_once __DIR__ . '/endpoints/properties.php';
 registerPropertyRoutes($router, $db);
@@ -227,4 +232,22 @@ require_once __DIR__ . '/endpoints/gdpr.php';
 registerGdprRoutes($router, $db);
 
 // ── Dispatch ──────────────────────────────────────────────────
-$router->dispatch();
+try {
+    $router->dispatch();
+} catch (Throwable $e) {
+    // Belt-and-suspenders: set_exception_handler above covers most cases,
+    // but wrapping dispatch in try-catch ensures we always send a response
+    // (e.g. persistent-connection "MySQL has gone away" on Windows/mod_php).
+    error_log('[API dispatch] ' . get_class($e) . ': ' . $e->getMessage()
+        . ' in ' . $e->getFile() . ':' . $e->getLine());
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+    }
+    echo json_encode([
+        'success' => false,
+        'message' => (defined('APP_ENV') && APP_ENV !== 'production')
+            ? get_class($e) . ': ' . $e->getMessage()
+            : 'An unexpected error occurred.',
+    ]);
+}

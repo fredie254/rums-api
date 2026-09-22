@@ -38,7 +38,12 @@ class ApiResponse
             header('Access-Control-Allow-Origin: *');
         } elseif ($origin !== '') {
             $allowedList = array_map('trim', explode(',', $allowed));
-            if (in_array($origin, $allowedList, true)) {
+            // Also allow Vercel preview deployments for this project
+            $isVercelPreview = (bool)preg_match(
+                '#^https://real-estate-management-system-fronted-[a-z0-9]+-frediewarui\.vercel\.app$#',
+                $origin
+            );
+            if (in_array($origin, $allowedList, true) || $isVercelPreview) {
                 header("Access-Control-Allow-Origin: $origin");
                 header('Access-Control-Allow-Credentials: true');
             }

@@ -2,12 +2,14 @@
 /**
  * Occupancy log endpoints
  *
- * GET  /api/v1/occupancy-logs   list (date_from, date_to, property_id, event_type)
- * POST /api/v1/occupancy-logs   create event
+ * GET  /api/v1/occupancy-logs            list (date_from, date_to, property_id, event_type)
+ * GET  /api/v1/security/occupancy-logs   alias — same handler
+ * POST /api/v1/occupancy-logs            create event
+ * POST /api/v1/security/occupancy-logs   alias — same handler
  */
 function registerOccupancyLogRoutes(Router $router, PDO $db): void
 {
-    $router->get('occupancy-logs', function () use ($db) {
+    $list = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
 
         $dateFrom  = Router::strParam('date_from') ?: date('Y-m-01');
@@ -55,15 +57,14 @@ function registerOccupancyLogRoutes(Router $router, PDO $db): void
             'current_page' => $page,
             'total_pages'  => max(1, (int)ceil($total / $perPage)),
         ]);
-    });
+    };
 
-    $router->post('occupancy-logs', function () use ($db) {
+    $create = function () use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
-        $body    = Router::body();
-        $user    = ApiAuth::user();
-        $unitId  = (int)($body['unit_id'] ?? 0) ?: null;
+        $body   = Router::body();
+        $user   = ApiAuth::user();
+        $unitId = (int)($body['unit_id'] ?? 0) ?: null;
 
-        // Auto-resolve tenant from unit
         $tenantId = null;
         if ($unitId) {
             $ts = $db->prepare("SELECT tenant_id FROM leases WHERE unit_id = ? AND status='active' LIMIT 1");
@@ -81,16 +82,23 @@ function registerOccupancyLogRoutes(Router $router, PDO $db): void
             (int)($body['property_id'] ?? 0) ?: null,
             $unitId,
             $tenantId,
-            $body['event_type']     ?? 'other',
-            $body['event_date']     ?? date('Y-m-d'),
-            $body['event_time']     ?? null,
-            $body['description']    ?? null,
+            $body['event_type']    ?? 'other',
+            $body['event_date']    ?? date('Y-m-d'),
+            $body['event_time']    ?? null,
+            $body['description']   ?? null,
             (int)($body['persons_count'] ?? 1),
-            $body['authorized_by']  ?? null,
-            $body['reference_no']   ?? null,
+            $body['authorized_by'] ?? null,
+            $body['reference_no']  ?? null,
             $user['id'],
         ]);
 
         ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Occupancy event logged.');
-    });
+    };
+
+    // ── Register under both canonical and security/ prefix ───────
+    $router->get('occupancy-logs',          $list);
+    $router->get('security/occupancy-logs', $list);
+
+    $router->post('occupancy-logs',          $create);
+    $router->post('security/occupancy-logs', $create);
 }

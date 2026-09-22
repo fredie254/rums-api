@@ -188,7 +188,7 @@ class DocumentService extends BaseService
         $sql = "SELECT d.uuid, d.title, d.document_type, d.category,
                     d.entity_type, d.entity_id, d.file_name, d.file_size,
                     d.mime_type, d.version, d.access_level, d.created_at,
-                    CONCAT(u.first_name,' ',u.last_name) AS uploaded_by_name
+                    u.name AS uploaded_by_name
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 $w ORDER BY d.created_at DESC";
@@ -204,7 +204,7 @@ class DocumentService extends BaseService
     {
         return $this->fetchOne(
             "SELECT d.*,
-                CONCAT(u.first_name,' ',u.last_name) AS uploaded_by_name,
+                u.name AS uploaded_by_name,
                 u.email AS uploaded_by_email,
                 p.title AS parent_title, p.version AS parent_version
              FROM documents d
@@ -238,7 +238,7 @@ class DocumentService extends BaseService
         return $this->fetchAll(
             "SELECT d.uuid, d.title, d.version, d.file_name, d.file_size,
                 d.mime_type, d.is_latest, d.created_at,
-                CONCAT(u.first_name,' ',u.last_name) AS uploaded_by_name
+                u.name AS uploaded_by_name
              FROM documents d
              LEFT JOIN users u ON u.id = d.uploaded_by
              WHERE (d.id = ? OR d.parent_id = ?) AND d.is_deleted = 0
@@ -326,7 +326,7 @@ class DocumentService extends BaseService
     {
         return $this->fetchAll(
             "SELECT dal.action, dal.ip_address, dal.created_at,
-                CONCAT(u.first_name,' ',u.last_name) AS user_name, u.role
+                u.name AS user_name, u.role
              FROM document_access_logs dal
              JOIN documents d ON d.id = dal.document_id
              LEFT JOIN users u ON u.id = dal.user_id

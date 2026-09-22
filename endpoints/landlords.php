@@ -29,21 +29,22 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         $page    = Router::page();
         $perPage = Router::perPage();
 
-        $where  = ['1=1'];
+        // Use users as the base so every user whose role='landlord' appears,
+        // even if they have no landlords profile row yet.
+        $where  = ["u.role = 'landlord'"];
         $params = [];
         if ($search) {
-            // id_number is now encrypted — only search unencrypted user fields
             $where[]  = '(u.name LIKE ? OR u.email LIKE ?)';
             $params[] = "%$search%";
             $params[] = "%$search%";
         }
         if ($userId) {
-            $where[]  = 'l.user_id = ?';
+            $where[]  = 'u.id = ?';
             $params[] = $userId;
         }
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $countStmt = $db->prepare("SELECT COUNT(*) FROM landlords l JOIN users u ON l.user_id = u.id $w");
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM users u LEFT JOIN landlords l ON l.user_id = u.id $w");
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 
@@ -51,18 +52,29 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         $offset     = ($page - 1) * $perPage;
 
         $stmt = $db->prepare("
-            SELECT l.*, u.name, u.email, u.phone, u.status AS user_status,
+            SELECT l.id, l.id_number, l.id_number_hash, l.kra_pin, l.bank_name,
+                   l.bank_account, l.bank_branch, l.mpesa_number, l.commission_rate, l.notes,
+                   l.user_id,
+                   u.name, u.email, u.phone, u.status AS user_status,
                    (SELECT COUNT(*) FROM properties WHERE landlord_id = l.id) AS property_count,
                    (SELECT COUNT(*) FROM units un
                     JOIN properties pp ON pp.id = un.property_id
                     WHERE pp.landlord_id = l.id AND un.status = 'occupied') AS occupied_units
-            FROM landlords l
-            JOIN users u ON l.user_id = u.id
+            FROM users u
+            LEFT JOIN landlords l ON l.user_id = u.id
             $w ORDER BY u.name
             LIMIT ? OFFSET ?
         ");
         $stmt->execute([...$params, $perPage, $offset]);
-        $rows = array_map('landlordDecrypt', $stmt->fetchAll());
+        $rows = array_map(function (array $row): array {
+            $row = landlordDecrypt($row);
+            // Field aliases so either frontend naming convention works
+            $row['status']               = $row['user_status'];
+            $row['properties_count']     = $row['property_count'];
+            $row['occupied_units_count'] = $row['occupied_units'];
+            $row['commission']           = $row['commission_rate'];
+            return $row;
+        }, $stmt->fetchAll());
 
         ApiResponse::paginated([
             'data' => $rows,
@@ -144,12 +156,7 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         $chkHash->execute([$idNumHash]);
         if ($chkHash->fetch()) ApiResponse::conflict('ID number is already registered.');
 
-        // Compute default password before encrypting id_number
-        $defaultPass = password_hash(
-            'Landlord@' . substr(preg_replace('/\D/', '', $body['id_number']), -4),
-            PASSWORD_BCRYPT, ['cost' => 10]
-        );
-        $defaultSuffix = substr($body['id_number'], -4);
+        $defaultPass = password_hash('Rums@1234.', PASSWORD_BCRYPT, ['cost' => 10]);
 
         $db->beginTransaction();
         try {
@@ -179,7 +186,7 @@ function registerLandlordRoutes(Router $router, PDO $db): void
 
             ApiResponse::created(
                 ['id' => $landlordId, 'user_id' => $userId],
-                'Landlord created. Default password: Landlord@' . $defaultSuffix
+                'Landlord created. Default password: Rums@1234.'
             );
         } catch (Throwable $e) {
             $db->rollBack();
@@ -191,6 +198,7 @@ function registerLandlordRoutes(Router $router, PDO $db): void
     $router->get('landlords/{id}', function (string $id) use ($db) {
         ApiAuth::requireScope($db, 'read:properties');
 
+        // Try by landlords.id first (the canonical key)
         $stmt = $db->prepare("
             SELECT l.*, u.name, u.email, u.phone, u.status AS user_status
             FROM landlords l JOIN users u ON l.user_id = u.id
@@ -198,6 +206,17 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         ");
         $stmt->execute([(int)$id]);
         $landlord = $stmt->fetch();
+
+        // Fallback: frontend may pass users.id instead of landlords.id
+        if (!$landlord) {
+            $stmt = $db->prepare("
+                SELECT l.*, u.name, u.email, u.phone, u.status AS user_status
+                FROM landlords l JOIN users u ON l.user_id = u.id
+                WHERE u.id = ?
+            ");
+            $stmt->execute([(int)$id]);
+            $landlord = $stmt->fetch();
+        }
         if (!$landlord) ApiResponse::notFound('Landlord not found.');
 
         $landlord = landlordDecrypt($landlord);
@@ -210,7 +229,8 @@ function registerLandlordRoutes(Router $router, PDO $db): void
             WHERE p.landlord_id = ?
             ORDER BY p.name
         ");
-        $propStmt->execute([(int)$id]);
+        // Use the actual landlords.id from the fetched row, not the raw URL parameter
+        $propStmt->execute([(int)$landlord['id']]);
         $landlord['properties'] = $propStmt->fetchAll();
 
         ApiResponse::ok($landlord);

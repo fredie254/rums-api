@@ -114,6 +114,66 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
         $ok = $svc()->deleteTemplate((int)$id);
         $ok ? ApiResponse::ok(null, 'Template deleted.') : ApiResponse::notFound('Template not found.');
     });
+
+    // ── Notification Preferences (landlord) ──────────────────────────────────
+    // GET  /notification-prefs   — fetch current landlord's preferences
+    // PUT  /notification-prefs   — save preferences (upsert)
+
+    $router->get('notification-prefs', function () use ($db) {
+        ApiAuth::require($db);
+        $landlordId = ApiAuth::landlordId($db);
+        if (!$landlordId) ApiResponse::forbidden('Only landlords can access notification preferences.');
+
+        $stmt = $db->prepare("SELECT * FROM notification_preferences WHERE landlord_id = ?");
+        $stmt->execute([$landlordId]);
+        $prefs = $stmt->fetch();
+
+        // Return defaults if no row exists yet
+        if (!$prefs) {
+            $prefs = [
+                'landlord_id'       => $landlordId,
+                'email_enabled'     => 1,
+                'sms_enabled'       => 1,
+                'inapp_enabled'     => 1,
+                'notify_payment'    => 1,
+                'notify_maintenance'  => 1,
+                'notify_lease_expiry' => 1,
+                'notify_overdue'    => 1,
+            ];
+        }
+        ApiResponse::ok($prefs);
+    });
+
+    $router->put('notification-prefs', function () use ($db) {
+        ApiAuth::require($db);
+        $landlordId = ApiAuth::landlordId($db);
+        if (!$landlordId) ApiResponse::forbidden('Only landlords can update notification preferences.');
+
+        $b = Router::body();
+        $bool = fn($key, $default = 1) => isset($b[$key]) ? ($b[$key] ? 1 : 0) : $default;
+
+        $db->prepare(
+            "INSERT INTO notification_preferences
+                (landlord_id, email_enabled, sms_enabled, inapp_enabled,
+                 notify_payment, notify_maintenance, notify_lease_expiry, notify_overdue)
+             VALUES (?,?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE
+                email_enabled     = VALUES(email_enabled),
+                sms_enabled       = VALUES(sms_enabled),
+                inapp_enabled     = VALUES(inapp_enabled),
+                notify_payment    = VALUES(notify_payment),
+                notify_maintenance  = VALUES(notify_maintenance),
+                notify_lease_expiry = VALUES(notify_lease_expiry),
+                notify_overdue    = VALUES(notify_overdue)"
+        )->execute([
+            $landlordId,
+            $bool('email_enabled'), $bool('sms_enabled'), $bool('inapp_enabled'),
+            $bool('notify_payment'), $bool('notify_maintenance'),
+            $bool('notify_lease_expiry'), $bool('notify_overdue'),
+        ]);
+
+        ApiResponse::ok(null, 'Notification preferences saved.');
+    });
 }
 
 /**

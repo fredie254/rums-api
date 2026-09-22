@@ -8,6 +8,9 @@ class PaymentService extends BaseService
         $where  = ['1=1'];
         $params = [];
 
+        // Track which extra tables the filters actually need
+        $needsUnitJoin = false;
+
         if (!empty($filters['tenant_id']))   { $where[] = 'p.tenant_id = ?';       $params[] = (int)$filters['tenant_id']; }
         if (!empty($filters['lease_id']))    { $where[] = 'p.lease_id = ?';        $params[] = (int)$filters['lease_id']; }
         if (!empty($filters['invoice_id']))  { $where[] = 'p.invoice_id = ?';      $params[] = (int)$filters['invoice_id']; }
@@ -16,29 +19,33 @@ class PaymentService extends BaseService
         if (!empty($filters['type']))        { $where[] = 'p.payment_type = ?';    $params[] = $filters['type']; }
         if (!empty($filters['date_from']))   { $where[] = 'p.payment_date >= ?';   $params[] = $filters['date_from']; }
         if (!empty($filters['date_to']))     { $where[] = 'p.payment_date <= ?';   $params[] = $filters['date_to']; }
-        if (!empty($filters['property_id']))  { $where[] = 'u.property_id = ?';    $params[] = (int)$filters['property_id']; }
-        if (!empty($filters['landlord_id']))  { $where[] = 'pr.landlord_id = ?';   $params[] = (int)$filters['landlord_id']; }
-        if (!empty($filters['no_invoice']))   { $where[] = 'p.invoice_id IS NULL'; }
+        if (!empty($filters['property_id'])) { $where[] = 'u.property_id = ?';    $params[] = (int)$filters['property_id']; $needsUnitJoin = true; }
+        if (!empty($filters['landlord_id'])) { $where[] = 'pr.landlord_id = ?';   $params[] = (int)$filters['landlord_id']; $needsUnitJoin = true; }
+        if (!empty($filters['no_invoice']))  { $where[] = 'p.invoice_id IS NULL'; }
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $sql = "SELECT p.*,
-            CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
-            i.invoice_number, i.total_amount AS invoice_amount,
-            i.amount_paid AS invoice_paid, i.status AS invoice_status,
-            u.unit_number, pr.id AS property_id, pr.name AS property_name
-            FROM payments p
-            LEFT JOIN tenants t      ON t.id  = p.tenant_id
-            LEFT JOIN invoices i     ON i.id  = p.invoice_id
-            LEFT JOIN leases l       ON l.id  = p.lease_id
-            LEFT JOIN units u        ON u.id  = l.unit_id
-            LEFT JOIN properties pr  ON pr.id = u.property_id
-            $w ORDER BY p.payment_date DESC, p.id DESC";
+        // Full JOIN set for the display query (always needs unit/property for output columns)
+        $sql = "SELECT p.id, p.payment_ref, p.lease_id, p.invoice_id, p.tenant_id,
+                    p.amount, p.payment_method, p.payment_type, p.payment_date,
+                    p.status, p.notes, p.mpesa_transaction_id, p.cheque_number, p.created_at,
+                    CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
+                    i.invoice_number, i.total_amount AS invoice_amount,
+                    i.amount_paid AS invoice_paid, i.status AS invoice_status,
+                    u.unit_number, pr.id AS property_id, pr.name AS property_name
+                FROM payments p
+                LEFT JOIN tenants t      ON t.id  = p.tenant_id
+                LEFT JOIN invoices i     ON i.id  = p.invoice_id
+                LEFT JOIN leases l       ON l.id  = p.lease_id
+                LEFT JOIN units u        ON u.id  = l.unit_id
+                LEFT JOIN properties pr  ON pr.id = u.property_id
+                $w ORDER BY p.payment_date DESC, p.id DESC";
 
-        $countSql = "SELECT COUNT(*) FROM payments p
-            LEFT JOIN leases l      ON l.id  = p.lease_id
-            LEFT JOIN units u       ON u.id  = l.unit_id
-            LEFT JOIN properties pr ON pr.id = u.property_id $w";
+        // Count query: only JOIN extra tables when the filters actually need them
+        $countJoin = $needsUnitJoin
+            ? "LEFT JOIN leases l ON l.id = p.lease_id LEFT JOIN units u ON u.id = l.unit_id LEFT JOIN properties pr ON pr.id = u.property_id"
+            : '';
+        $countSql = "SELECT COUNT(*) FROM payments p $countJoin $w";
 
         return $this->paginatedQuery($sql, $params, $countSql, $params, $page, $perPage);
     }

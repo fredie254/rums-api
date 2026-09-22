@@ -29,12 +29,11 @@ function getDB(): PDO
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES   => false,
-        // Persistent connections: each PHP-FPM worker reuses its MySQL socket
-        // — eliminates the TCP/socket handshake on every request.
-        // Safe on FPM (one connection per worker). Disable if using ProxySQL/pgBouncer.
-        PDO::ATTR_PERSISTENT         => true,
-        // charset= in DSN already sets names; INIT_COMMAND is only needed for
-        // collation overrides or session variables.
+        // Persistent connections disabled — they go stale when MySQL closes the
+        // server-side socket (wait_timeout), and on Windows/Apache mod_php the
+        // resulting "MySQL server has gone away" error kills the PHP process
+        // without sending an HTTP response (socket hang-up seen by the proxy).
+        PDO::ATTR_PERSISTENT         => false,
         PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION', time_zone='+03:00'",
     ];
 

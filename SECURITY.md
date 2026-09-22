@@ -193,7 +193,7 @@ The frontend sidebar is role-gated. Each role sees only its own navigation secti
 | Verification | `password_verify()` (constant-time) |
 | Change requirement | Current password must be provided to set a new one |
 
-Default tenant password format: `Tenant@{last4digits_of_ID}` — users must change this on first login.
+Default password for all system-created accounts: `Rums@1234.` — users must change this on first login. Applies to tenant creation, landlord creation, CSV bulk imports, and `POST /users` calls that omit the `password` field. Existing users' passwords are never changed by the system.
 
 ### 4.2 Rate Limiting
 
@@ -264,7 +264,7 @@ These are returned only to users with the `admin` role.
 Allowed origins are configured in `.env`:
 
 ```
-CORS_ALLOWED_ORIGINS=https://app-rums.nexusiot.xyz,https://api-rums.nexusiot.xyz
+CORS_ALLOWED_ORIGINS=https://rums.ultimatesolutions.co.ke,https://api.rums.ultimatesolutions.co.ke
 ```
 
 In development, `*` is acceptable. In production, only explicitly listed origins are permitted. Preflight `OPTIONS` requests are handled before authentication guards run.

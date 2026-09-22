@@ -95,6 +95,7 @@
     <div class="sidebar-group-label">General</div>
     <a href="#overview">Overview</a>
     <a href="#auth-section">Authentication</a>
+    <a href="#default-password">Default Passwords</a>
     <a href="#errors">Errors &amp; Codes</a>
   </div>
 
@@ -347,6 +348,50 @@ Content-Type: application/json
       <span class="endpoint-desc">Revoke a token by ID (own tokens; admin can revoke any)</span>
     </div>
   </div>
+</section>
+
+<!-- Default Passwords -->
+<section id="default-password">
+  <h2>Default Passwords</h2>
+  <p>All system-created user accounts are provisioned with the same initial password. Users should change it immediately after their first login.</p>
+
+  <div class="alert alert-warn">
+    <strong>Default password for all new accounts:</strong> <code>Rums@1234.</code>
+  </div>
+
+  <h3>Which accounts receive the default password?</h3>
+  <table>
+    <tr><th>Creation method</th><th>Password</th></tr>
+    <tr><td><code>POST /api/v1/users</code> without a <code>password</code> field</td><td><code>Rums@1234.</code></td></tr>
+    <tr><td><code>POST /api/v1/tenants</code> (creates user + profile)</td><td><code>Rums@1234.</code></td></tr>
+    <tr><td><code>POST /api/v1/landlords</code> (creates user + profile)</td><td><code>Rums@1234.</code></td></tr>
+    <tr><td><code>POST /api/v1/landlords/import</code> (CSV bulk import)</td><td><code>Rums@1234.</code></td></tr>
+    <tr><td><code>POST /api/v1/tenants/import</code> (CSV bulk import)</td><td><code>Rums@1234.</code></td></tr>
+    <tr><td><code>POST /api/v1/users</code> with an explicit <code>password</code></td><td>The provided password (no default)</td></tr>
+  </table>
+
+  <h3>How to log in</h3>
+  <p>All users authenticate with their <strong>email address</strong> and the password set at account creation.</p>
+  <pre><code>POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "jane.doe@example.com",
+  "password": "Rums@1234."
+}</code></pre>
+
+  <h3>Existing accounts</h3>
+  <div class="alert alert-info">The default password only applies to <em>newly created</em> accounts. Passwords of existing users in the database are never changed by the system.</div>
+
+  <h3>Changing the password</h3>
+  <p>An admin can update any user's password via <code>PATCH /api/v1/users/{id}</code> with a <code>password</code> field. Users should be prompted to change their password on first login.</p>
+  <pre><code>PATCH /api/v1/users/{id}
+Authorization: Bearer &lt;admin-token&gt;
+Content-Type: application/json
+
+{
+  "password": "NewSecurePassword123!"
+}</code></pre>
 </section>
 
 <!-- Properties -->
@@ -1255,7 +1300,7 @@ Content-Type: application/json
         <tr><td><code>name</code></td><td>string</td><td><span class="req">required</span></td><td></td></tr>
         <tr><td><code>email</code></td><td>string</td><td><span class="req">required</span></td><td>Must be unique</td></tr>
         <tr><td><code>role</code></td><td>string</td><td><span class="req">required</span></td><td><code>admin</code> | <code>manager</code> | <code>landlord</code> | <code>tenant</code> | <code>accountant</code> | <code>maintenance</code> | <code>auditor</code> | <code>security</code></td></tr>
-        <tr><td><code>password</code></td><td>string</td><td><span class="req">required</span></td><td>Min 8 characters recommended</td></tr>
+        <tr><td><code>password</code></td><td>string</td><td><span class="opt">optional</span></td><td>Defaults to <code>Rums@1234.</code> if omitted</td></tr>
         <tr><td><code>phone</code></td><td>string</td><td><span class="opt">optional</span></td><td></td></tr>
       </table>
     </div>

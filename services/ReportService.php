@@ -116,13 +116,14 @@ class ReportService extends BaseService
 
         $summary = $this->fetchOne(
             "SELECT COUNT(*) AS total,
-                SUM(mr.status='open')        AS open,
-                SUM(mr.status='in_progress') AS in_progress,
-                SUM(mr.status='completed')   AS completed,
-                SUM(mr.priority='urgent')    AS urgent,
-                SUM(mr.priority='high')      AS high,
+                SUM(mr.status='open')                             AS open,
+                SUM(mr.status='in_progress')                      AS in_progress,
+                SUM(mr.status IN ('completed','resolved'))        AS completed,
+                SUM(mr.status='cancelled')                        AS cancelled,
+                SUM(mr.priority='urgent')                         AS urgent,
+                SUM(mr.priority='high')                           AS high,
                 COALESCE(SUM(mr.materials_cost + mr.labour_cost), 0) AS total_cost,
-                AVG(CASE WHEN mr.status='completed'
+                AVG(CASE WHEN mr.status IN ('completed','resolved')
                     THEN DATEDIFF(mr.work_completed, mr.created_at) END) AS avg_days
              FROM maintenance_requests mr
              LEFT JOIN units u ON u.id = mr.unit_id
@@ -142,12 +143,12 @@ class ReportService extends BaseService
 
         $byProperty = $this->fetchAll(
             "SELECT pr.name, COUNT(*) AS count,
-                SUM(mr.status='completed') AS resolved,
+                SUM(mr.status IN ('completed','resolved')) AS resolved,
                 COALESCE(SUM(mr.materials_cost + mr.labour_cost), 0) AS cost
              FROM maintenance_requests mr
-             LEFT JOIN units u      ON u.id  = mr.unit_id
+             LEFT JOIN units u       ON u.id  = mr.unit_id
              LEFT JOIN properties pr ON pr.id = u.property_id
-             WHERE DATE(mr.created_at) BETWEEN ? AND ?
+             WHERE DATE(mr.created_at) BETWEEN ? AND ? $pf
              GROUP BY pr.id ORDER BY count DESC",
             [$dateFrom, $dateTo]
         );
@@ -525,6 +526,70 @@ class ReportService extends BaseService
         return compact('newPerMonth', 'terminatedPerMonth', 'avgTenure', 'statusDist', 'expiringSoon', 'topTenants');
     }
 
+    // ── Unit Performance ──────────────────────────────────────
+    // Per-unit breakdown: occupancy, rent collected, outstanding, maintenance.
+
+    public function unitPerformance(string $dateFrom, string $dateTo, ?int $propertyId = null): array
+    {
+        $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+
+        $rows = $this->fetchAll(
+            "SELECT
+                u.id, u.unit_number, u.unit_type, u.bedrooms, u.floor,
+                u.rent_amount, u.status AS unit_status,
+                pr.id AS property_id, pr.name AS property_name,
+                CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
+                t.email AS tenant_email,
+                l.id AS lease_id, l.lease_number,
+                l.start_date AS lease_start, l.end_date AS lease_end,
+                l.monthly_rent, l.status AS lease_status,
+                COALESCE(SUM(DISTINCT CASE WHEN i.status != 'cancelled' THEN i.total_amount END), 0) AS total_invoiced,
+                COALESCE(SUM(DISTINCT CASE WHEN i.status != 'cancelled' THEN i.amount_paid END), 0)  AS total_collected,
+                COALESCE(SUM(DISTINCT CASE WHEN i.status IN ('unpaid','partial','overdue') THEN i.total_amount - i.amount_paid END), 0) AS outstanding_balance,
+                COUNT(DISTINCT mr.id) AS maintenance_requests,
+                SUM(DISTINCT CASE WHEN mr.status NOT IN ('completed','resolved','cancelled') THEN 1 ELSE 0 END) AS open_maintenance,
+                COALESCE(SUM(DISTINCT COALESCE(mr.materials_cost,0) + COALESCE(mr.labour_cost,0)), 0) AS maintenance_cost
+             FROM units u
+             JOIN properties pr     ON pr.id = u.property_id
+             LEFT JOIN leases l     ON l.unit_id = u.id AND l.status = 'active'
+             LEFT JOIN tenants t    ON t.id = l.tenant_id
+             LEFT JOIN invoices i   ON i.lease_id = l.id
+                AND i.invoice_date BETWEEN ? AND ?
+             LEFT JOIN maintenance_requests mr ON mr.unit_id = u.id
+                AND DATE(mr.created_at) BETWEEN ? AND ?
+             WHERE 1=1 $pf
+             GROUP BY u.id
+             ORDER BY pr.name, u.unit_number",
+            [$dateFrom, $dateTo, $dateFrom, $dateTo]
+        );
+
+        // Compute derived metrics per row
+        foreach ($rows as &$row) {
+            $invoiced = (float)$row['total_invoiced'];
+            $collected = (float)$row['total_collected'];
+            $row['collection_rate'] = $invoiced > 0 ? round($collected / $invoiced * 100, 1) : null;
+        }
+        unset($row);
+
+        $summary = [
+            'total_units'       => count($rows),
+            'occupied'          => count(array_filter($rows, fn($r) => $r['unit_status'] === 'occupied')),
+            'available'         => count(array_filter($rows, fn($r) => $r['unit_status'] === 'available')),
+            'total_invoiced'    => round(array_sum(array_column($rows, 'total_invoiced')), 2),
+            'total_collected'   => round(array_sum(array_column($rows, 'total_collected')), 2),
+            'total_outstanding' => round(array_sum(array_column($rows, 'outstanding_balance')), 2),
+            'total_maintenance_cost' => round(array_sum(array_column($rows, 'maintenance_cost')), 2),
+        ];
+        $summary['occupancy_rate'] = $summary['total_units'] > 0
+            ? round($summary['occupied'] / $summary['total_units'] * 100, 1)
+            : 0;
+        $summary['collection_rate'] = $summary['total_invoiced'] > 0
+            ? round($summary['total_collected'] / $summary['total_invoiced'] * 100, 1)
+            : null;
+
+        return compact('summary', 'rows');
+    }
+
     // ── CSV Export ────────────────────────────────────────────
     // Returns [headers => [], rows => []] ready for fputcsv.
 
@@ -539,6 +604,7 @@ class ReportService extends BaseService
             'maintenance'      => $this->exportMaintenance($params),
             'aging'            => $this->exportAging($params),
             'deposits'         => $this->exportDeposits($params),
+            'unit_performance' => $this->exportUnitPerformance($params),
             default            => ['headers' => [], 'rows' => []],
         };
     }
@@ -719,6 +785,27 @@ class ReportService extends BaseService
             $r['lease_number'], $r['lease_status'],
             $r['expected_deposit'], $r['paid_deposit'], $r['refunded_deposit'],
             $r['deposit_balance'], $r['deposit_outstanding'],
+        ], $data['rows']);
+
+        return compact('headers', 'rows');
+    }
+
+    private function exportUnitPerformance(array $p): array
+    {
+        $from   = $p['date_from'] ?? date('Y-01-01');
+        $to     = $p['date_to']   ?? date('Y-m-d');
+        $propId = isset($p['property_id']) ? (int)$p['property_id'] : null;
+        $data   = $this->unitPerformance($from, $to, $propId);
+
+        $headers = ['Property','Unit','Type','Bedrooms','Rent Amount','Status','Tenant',
+                    'Lease Start','Lease End','Invoiced','Collected','Outstanding','Collection Rate %','Maintenance Requests','Maintenance Cost'];
+        $rows = array_map(fn($r) => [
+            $r['property_name'], $r['unit_number'], $r['unit_type'], $r['bedrooms'],
+            $r['rent_amount'], $r['unit_status'], $r['tenant_name'] ?? '',
+            $r['lease_start'] ?? '', $r['lease_end'] ?? '',
+            $r['total_invoiced'], $r['total_collected'], $r['outstanding_balance'],
+            $r['collection_rate'] ?? '',
+            $r['maintenance_requests'], $r['maintenance_cost'],
         ], $data['rows']);
 
         return compact('headers', 'rows');
