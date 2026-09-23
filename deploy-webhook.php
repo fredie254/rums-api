@@ -2,41 +2,32 @@
 /**
  * GitHub webhook deployment endpoint.
  * Served directly by Apache (bypasses the API router).
- * Reads DEPLOY_SECRET from .env manually since bootstrap isn't loaded here.
+ * Secured with a shared Bearer token from .env (DEPLOY_TOKEN).
  */
 
-// Parse .env to get DEPLOY_SECRET
+// Parse DEPLOY_TOKEN from .env
+$token = '';
 $envFile = __DIR__ . '/.env';
-$secret  = '';
 if (file_exists($envFile)) {
     foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         if (str_starts_with(trim($line), '#')) continue;
         if (str_contains($line, '=')) {
             [$k, $v] = explode('=', $line, 2);
-            if (trim($k) === 'DEPLOY_SECRET') {
-                $secret = trim($v);
+            if (trim($k) === 'DEPLOY_TOKEN') {
+                $token = trim($v);
                 break;
             }
         }
     }
 }
 
-// Verify HMAC signature
-$signature = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '';
-$payload   = file_get_contents('php://input');
-$expected  = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+// Verify Bearer token
+$auth     = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$provided = str_starts_with($auth, 'Bearer ') ? substr($auth, 7) : '';
 
-if (!$secret || !hash_equals($expected, $signature)) {
+if (!$token || !hash_equals($token, $provided)) {
     http_response_code(403);
     exit(json_encode(['success' => false, 'message' => 'Forbidden']));
-}
-
-$data = json_decode($payload, true);
-
-// Only deploy on push to main
-if (($data['ref'] ?? '') !== 'refs/heads/main') {
-    http_response_code(200);
-    exit(json_encode(['success' => true, 'message' => 'Ignored: not main branch']));
 }
 
 $dir    = escapeshellarg(__DIR__);
