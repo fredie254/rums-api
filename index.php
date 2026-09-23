@@ -231,6 +231,25 @@ registerMfaRoutes($router, $db);
 require_once __DIR__ . '/endpoints/gdpr.php';
 registerGdprRoutes($router, $db);
 
+// ── GitHub deploy webhook (no auth — verified by HMAC signature) ──────────
+$router->post('/deploy-webhook.php', function () {
+    $secret  = env('DEPLOY_SECRET', '');
+    $sig     = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '';
+    $payload = file_get_contents('php://input');
+    $expected = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+    if (!$secret || !hash_equals($expected, $sig)) {
+        http_response_code(403); echo json_encode(['success' => false, 'message' => 'Forbidden']); exit;
+    }
+    $data = json_decode($payload, true);
+    if (($data['ref'] ?? '') !== 'refs/heads/main') {
+        echo json_encode(['success' => true, 'message' => 'Ignored']); exit;
+    }
+    $dir    = escapeshellarg(__DIR__);
+    $output = shell_exec("cd $dir && git pull origin main 2>&1");
+    echo json_encode(['success' => true, 'output' => $output]);
+    exit;
+});
+
 // ── Dispatch ──────────────────────────────────────────────────
 try {
     $router->dispatch();
