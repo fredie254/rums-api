@@ -176,55 +176,15 @@ jobs:
       url: ${{ vars.APP_URL }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy via rsync over SSH
-        uses: burnett01/rsync-deployments@7.0.1
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          switches: >
-            -avzr
-            --delete
-            --exclude='.git'
-            --exclude='.github'
-            --exclude='.env'
-            --exclude='.env.example'
-            --exclude='*.log'
-            --exclude='storage/documents/'
-            --exclude='storage/exports/'
-            --exclude='fix-admin.php'
-            --exclude='reset-password.php'
-            --exclude='seed.php'
-          path: ./
-          remote_path: ${{ secrets.DEPLOY_PATH }}
-          remote_host: ${{ secrets.SERVER_HOST }}
-          remote_user: ${{ secrets.SERVER_USER }}
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
-          remote_port: ${{ secrets.SERVER_PORT || 22 }}
-
-      - name: Run database migrations
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
+          host:     ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
+          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+          port:     ${{ secrets.SERVER_PORT }}
           script: |
+            set -e
             cd ${{ secrets.DEPLOY_PATH }}
-            echo "Running migrations..."
-            for migration in migrations/*.sql; do
-              echo "Applying $migration..."
-              mysql -u $DB_USER -p$DB_PASS $DB_NAME < $migration 2>/dev/null || true
-            done
-            echo "Reloading services..."
-            sudo systemctl reload php8.5-fpm
-            sudo systemctl reload nginx
-            echo "✔ Deployment complete: $(date)"
-
-      - name: Deployment summary
-        if: success()
-        run: |
-          echo "✔ RUMS API deployed successfully"
-          echo "Commit : ${{ github.sha }}"
-          echo "Author : ${{ github.actor }}"
-          echo "Message: ${{ github.event.head_commit.message }}"
+            git pull origin main
+            echo "✅ API deployed at $(date)"
