@@ -179,8 +179,7 @@ jobs:
       - name: Trigger deploy via webhook
         run: |
           STATUS=$(curl -s -o /tmp/deploy_response.json -w "%{http_code}" \
-            -X POST "${{ secrets.DEPLOY_WEBHOOK_URL }}" \
-            -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}")
+            -X POST "${{ secrets.DEPLOY_WEBHOOK_URL }}?token=${{ secrets.DEPLOY_TOKEN }}")
           cat /tmp/deploy_response.json
           if [ "$STATUS" != "200" ]; then
             echo "Deploy webhook returned HTTP $STATUS"

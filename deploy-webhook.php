@@ -1,8 +1,7 @@
 <?php
 /**
  * GitHub webhook deployment endpoint.
- * Served directly by Apache (bypasses the API router).
- * Secured with a shared Bearer token from .env (DEPLOY_TOKEN).
+ * Secured via ?token= query parameter (Authorization header stripped by Apache).
  */
 
 // Parse DEPLOY_TOKEN from .env
@@ -21,9 +20,7 @@ if (file_exists($envFile)) {
     }
 }
 
-// Verify Bearer token
-$auth     = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-$provided = str_starts_with($auth, 'Bearer ') ? substr($auth, 7) : '';
+$provided = $_GET['token'] ?? '';
 
 if (!$token || !hash_equals($token, $provided)) {
     http_response_code(403);
