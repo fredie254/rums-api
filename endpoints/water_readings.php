@@ -97,7 +97,7 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
                     wr.id, wr.unit_id, wr.lease_id, wr.reading_date,
                     wr.reading_value, wr.water_rate, wr.is_initial,
                     wr.invoiced, wr.notes, wr.created_at,
-                    u.unit_number, pr.name AS property_name, pr.id AS property_id,
+                    u.unit_number, u.meter_number, pr.name AS property_name, pr.id AS property_id,
                     CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
                     rec.name AS recorded_by_name,
                     (wr.id = (SELECT MAX(wr2.id) FROM water_readings wr2 WHERE wr2.unit_id = wr.unit_id)) AS is_current,
