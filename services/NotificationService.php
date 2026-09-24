@@ -39,18 +39,18 @@ class NotificationService extends BaseService
 
     private function buildMail(): MailService
     {
-        $cfg = $this->fetchSettingsGroup([
-            'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
-            'smtp_encryption', 'mail_from_name', 'mail_from_email',
-        ]);
+        // SMTP credentials come from .env only — never from the database
+        // Display name/address falls back to company settings in the DB
+        $display = $this->fetchSettingsGroup(['company_name', 'mail_from_name', 'mail_from_email']);
+
         return new MailService([
-            'smtp_host'       => $cfg['smtp_host']       ?? '',
-            'smtp_port'       => (int)($cfg['smtp_port'] ?? 587),
-            'smtp_user'       => $cfg['smtp_user']       ?? '',
-            'smtp_pass'       => $cfg['smtp_pass']       ?? '',
-            'smtp_encryption' => $cfg['smtp_encryption'] ?? 'tls',
-            'from_name'       => $cfg['mail_from_name']  ?? ($cfg['company_name'] ?? 'RUMS'),
-            'from_email'      => $cfg['mail_from_email'] ?? ($cfg['smtp_user'] ?? ''),
+            'smtp_host'       => env('MAIL_HOST',       ''),
+            'smtp_port'       => (int)env('MAIL_PORT',  465),
+            'smtp_user'       => env('MAIL_USER',       ''),
+            'smtp_pass'       => env('MAIL_PASS',       ''),
+            'smtp_encryption' => env('MAIL_ENCRYPTION', 'ssl'),
+            'from_name'       => env('MAIL_FROM_NAME',  $display['mail_from_name']  ?? ($display['company_name'] ?? 'RUMS')),
+            'from_email'      => env('MAIL_FROM_EMAIL', $display['mail_from_email'] ?? env('MAIL_USER', '')),
         ]);
     }
 

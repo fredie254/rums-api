@@ -277,20 +277,19 @@ function registerUserRoutes(Router $router, PDO $db): void
             try {
                 require_once __DIR__ . '/../services/MailService.php';
 
-                $smtpKeys = ['smtp_host','smtp_port','smtp_user','smtp_pass','smtp_encryption','mail_from_name','mail_from_email'];
-                $in       = implode(',', array_fill(0, count($smtpKeys), '?'));
-                $rows     = $db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ($in)");
-                $rows->execute($smtpKeys);
-                $cfg = array_column($rows->fetchAll(), 'setting_value', 'setting_key');
+                // SMTP credentials from .env — display info from settings table
+                $display = $db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('company_name','mail_from_name','mail_from_email')");
+                $display->execute();
+                $cfg = array_column($display->fetchAll(), 'setting_value', 'setting_key');
 
                 $mailer = new MailService([
-                    'smtp_host'       => $cfg['smtp_host']        ?? '',
-                    'smtp_port'       => (int)($cfg['smtp_port']  ?? 587),
-                    'smtp_user'       => $cfg['smtp_user']        ?? '',
-                    'smtp_pass'       => $cfg['smtp_pass']        ?? '',
-                    'smtp_encryption' => $cfg['smtp_encryption']  ?? 'tls',
-                    'from_name'       => $cfg['mail_from_name']   ?? 'RUMS',
-                    'from_email'      => $cfg['mail_from_email']  ?? ($cfg['smtp_user'] ?? ''),
+                    'smtp_host'       => env('MAIL_HOST',       ''),
+                    'smtp_port'       => (int)env('MAIL_PORT',  465),
+                    'smtp_user'       => env('MAIL_USER',       ''),
+                    'smtp_pass'       => env('MAIL_PASS',       ''),
+                    'smtp_encryption' => env('MAIL_ENCRYPTION', 'ssl'),
+                    'from_name'       => env('MAIL_FROM_NAME',  $cfg['mail_from_name']  ?? ($cfg['company_name'] ?? 'RUMS')),
+                    'from_email'      => env('MAIL_FROM_EMAIL', $cfg['mail_from_email'] ?? env('MAIL_USER', '')),
                 ]);
 
                 $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
