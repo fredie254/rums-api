@@ -15,7 +15,7 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
 {
     // ── Bulk generate ─────────────────────────────────────────
     $router->post('invoices/bulk', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'accountant');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner', 'accountant');
         $body   = Router::body();
         $year   = (int)($body['year']        ?? date('Y'));
         $month  = (int)($body['month']       ?? date('n'));
@@ -95,7 +95,7 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
     // ── Mark overdue ──────────────────────────────────────────
     // Sets status='overdue' for all unpaid/partial invoices past (due_date + grace_period_days).
     $router->post('invoices/mark-overdue', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'accountant');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner', 'accountant');
 
         $stmt = $db->prepare(
             "UPDATE invoices i
@@ -377,7 +377,7 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
     // Calculates penalty from lease.penalty_rate applied to rent_amount
     // and applies it if invoice is past (due_date + grace_period_days).
     $router->post('invoices/{id}/apply-penalty', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'accountant');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner', 'accountant');
 
         $stmt = $db->prepare(
             "SELECT i.*, l.penalty_rate, l.grace_period_days

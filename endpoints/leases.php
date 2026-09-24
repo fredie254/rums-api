@@ -126,7 +126,7 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 
     // ── Terminate ─────────────────────────────────────────────
     $router->post('leases/{id}/terminate', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body   = Router::body();
         $reason = trim($body['reason'] ?? '');
         $res    = $svc->terminate((int)$id, $reason);
@@ -137,7 +137,7 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 
     // ── Renew ─────────────────────────────────────────────────
     $router->post('leases/{id}/renew', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $res = $svc->renew((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(['renewal_id' => $res['renewal_id'] ?? null], $res['message'])
@@ -146,7 +146,7 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 
     // ── Apply escalation ──────────────────────────────────────
     $router->post('leases/{id}/apply-escalation', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $res = $svc->applyEscalation((int)$id);
         $res['success']
             ? ApiResponse::ok($res, $res['message'])
@@ -155,7 +155,7 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 
     // ── Mark as signed ────────────────────────────────────────
     $router->post('leases/{id}/sign', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $user = ApiAuth::user();
         $db->prepare(
             "UPDATE leases SET signed_at = NOW(), signed_by = ? WHERE id = ? AND signed_at IS NULL"
@@ -208,7 +208,7 @@ function registerLeaseRoutes(Router $router, PDO $db): void
 
     // ── Documents: delete ─────────────────────────────────────
     $router->delete('leases/{id}/documents/{doc_id}', function (string $id, string $doc_id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $stmt = $db->prepare(
             "SELECT file_path FROM lease_documents WHERE id = ? AND lease_id = ?"
         );

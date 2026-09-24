@@ -32,7 +32,7 @@ function registerLeaseTemplateRoutes(Router $router, PDO $db): void
 
     // ── Create ────────────────────────────────────────────────
     $router->post('lease-templates', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body = Router::body();
         foreach (['name', 'body'] as $field) {
             if (empty($body[$field])) ApiResponse::unprocessable("Field '$field' is required.");
@@ -72,7 +72,7 @@ function registerLeaseTemplateRoutes(Router $router, PDO $db): void
 
     // ── Update ────────────────────────────────────────────────
     $router->put('lease-templates/{id}', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body = Router::body();
 
         $check = $db->prepare("SELECT id, lease_type FROM lease_templates WHERE id = ? AND is_active = 1");

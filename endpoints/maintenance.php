@@ -230,7 +230,7 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
     });
 
     $router->put('maintenance/{id}', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $res = $svc->update((int)$id, Router::body());
         $res['success']
             ? ApiResponse::ok(null, $res['message'])
@@ -269,7 +269,7 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
     });
 
     $router->delete('maintenance/{id}', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $wo = $svc->find((int)$id);
         if (!$wo) ApiResponse::notFound('Work order not found.');
 
@@ -288,7 +288,7 @@ function registerMaintenanceRoutes(Router $router, PDO $db): void
 
     // ── Assign ───────────────────────────────────────────────────
     $router->post('maintenance/{id}/assign', function (string $id) use ($svc, $db, $inApp, $assignmentEmail) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body       = Router::body();
         $assignedTo = (int)($body['assigned_to'] ?? 0);
         if (!$assignedTo) ApiResponse::badRequest('assigned_to is required.');

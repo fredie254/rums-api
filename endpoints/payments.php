@@ -128,7 +128,7 @@ function registerPaymentRoutes(Router $router, PDO $db): void
 
     // ── Reverse payment ───────────────────────────────────────────
     $router->post('payments/{id}/reverse', function (string $id) use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
 
         $stmt = $db->prepare("SELECT * FROM payments WHERE id = ?");
         $stmt->execute([(int)$id]);
@@ -162,7 +162,7 @@ function registerPaymentRoutes(Router $router, PDO $db): void
 
     // ── Partial update ────────────────────────────────────────────
     $router->patch('payments/{id}', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip([
             'notes', 'payment_date', 'cheque_number', 'mpesa_transaction_id',

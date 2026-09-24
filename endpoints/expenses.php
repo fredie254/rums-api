@@ -141,7 +141,7 @@ function registerExpenseRoutes(Router $router, PDO $db): void
 
     // ── Approve ──────────────────────────────────────────────────
     $router->patch('expenses/{id}/approve', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $user = ApiAuth::user();
         $stmt = $db->prepare(
             "UPDATE expenses SET status='approved', approved_by=? WHERE id=? AND status='pending'"
@@ -154,7 +154,7 @@ function registerExpenseRoutes(Router $router, PDO $db): void
 
     // ── Reject ───────────────────────────────────────────────────
     $router->patch('expenses/{id}/reject', function (string $id) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $stmt = $db->prepare(
             "UPDATE expenses SET status='rejected' WHERE id=? AND status='pending'"
         );

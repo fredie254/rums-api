@@ -14,14 +14,14 @@ function registerBroadcastRoutes(Router $router, PDO $db): void
 
     // ── List ─────────────────────────────────────────────────
     $router->get('broadcasts', function () use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $result = $svc()->getBroadcasts(Router::page(), Router::perPage());
         ApiResponse::paginated($result);
     });
 
     // ── Create ───────────────────────────────────────────────
     $router->post('broadcasts', function () use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $user   = ApiAuth::user();
         $result = $svc()->createBroadcast(Router::body(), $user['id']);
 
@@ -34,14 +34,14 @@ function registerBroadcastRoutes(Router $router, PDO $db): void
 
     // ── Find ─────────────────────────────────────────────────
     $router->get('broadcasts/{id}', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $row = $svc()->findBroadcast((int)$id);
         $row ? ApiResponse::ok($row) : ApiResponse::notFound('Broadcast not found.');
     });
 
     // ── Send ─────────────────────────────────────────────────
     $router->post('broadcasts/{id}/send', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $user   = ApiAuth::user();
         $result = $svc()->sendBroadcast((int)$id, $user['id']);
 
@@ -58,7 +58,7 @@ function registerBroadcastRoutes(Router $router, PDO $db): void
 
     // ── Cancel ───────────────────────────────────────────────
     $router->patch('broadcasts/{id}/cancel', function (string $id) use ($svc, $db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $ok = $svc()->cancelBroadcast((int)$id);
         $ok
             ? ApiResponse::ok(null, 'Broadcast cancelled.')

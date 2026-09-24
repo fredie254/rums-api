@@ -54,7 +54,7 @@ function registerNotificationRoutes(Router $router, PDO $db): void
 
     // ── Create (push) ─────────────────────────────────────────
     $router->post('notifications', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
 
         $body = Router::body();
         if (empty($body['user_id']) || empty($body['title']) || empty($body['message'])) {
@@ -92,7 +92,7 @@ function registerNotificationRoutes(Router $router, PDO $db): void
 
     // ── Send single SMS ───────────────────────────────────────
     $router->post('notifications/send-sms', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body = Router::body();
         if (empty($body['phone']) || empty($body['message'])) {
             ApiResponse::unprocessable('phone and message are required.');
@@ -115,7 +115,7 @@ function registerNotificationRoutes(Router $router, PDO $db): void
 
     // ── Send single email ─────────────────────────────────────
     $router->post('notifications/send-email', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body = Router::body();
         if (empty($body['email']) || empty($body['subject']) || empty($body['html_body'])) {
             ApiResponse::unprocessable('email, subject and html_body are required.');
@@ -140,7 +140,7 @@ function registerNotificationRoutes(Router $router, PDO $db): void
 
     // ── Payment reminders batch ───────────────────────────────
     $router->post('notifications/payment-reminders', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body    = Router::body();
         $dueDays = isset($body['due_days']) ? max(1, (int)$body['due_days']) : 3;
         $user    = ApiAuth::user();
@@ -151,7 +151,7 @@ function registerNotificationRoutes(Router $router, PDO $db): void
 
     // ── Lease expiry reminders batch ──────────────────────────
     $router->post('notifications/lease-reminders', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body       = Router::body();
         $expiryDays = isset($body['expiry_days']) ? max(1, (int)$body['expiry_days']) : 30;
         $user       = ApiAuth::user();

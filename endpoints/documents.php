@@ -26,7 +26,7 @@ function registerDocumentRoutes(Router $router, PDO $db): void
 
     // ── Stats ─────────────────────────────────────────────────
     $router->get('documents/stats', function () use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'accountant', 'auditor');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner', 'accountant', 'auditor');
         $svc = new DocumentService($db);
         ApiResponse::ok($svc->stats());
     });
@@ -122,7 +122,7 @@ function registerDocumentRoutes(Router $router, PDO $db): void
 
     // ── Update metadata ────────────────────────────────────────
     $router->patch('documents/{uuid}', function (string $uuid) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $user   = ApiAuth::user();
         $svc    = new DocumentService($db);
         $result = $svc->update($uuid, Router::body(), $user['id']);
@@ -180,7 +180,7 @@ function registerDocumentRoutes(Router $router, PDO $db): void
 
     // ── Upload new version ────────────────────────────────────
     $router->post('documents/{uuid}/version', function (string $uuid) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'accountant');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner', 'accountant');
         $user = ApiAuth::user();
 
         if (empty($_FILES['file'])) {
@@ -211,7 +211,7 @@ function registerDocumentRoutes(Router $router, PDO $db): void
 
     // ── Access log ────────────────────────────────────────────
     $router->get('documents/{uuid}/access-log', function (string $uuid) use ($db) {
-        ApiAuth::requireRole($db, 'admin', 'manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $svc  = new DocumentService($db);
         $logs = $svc->accessLogs($uuid);
         ApiResponse::ok(['data' => $logs, 'total' => count($logs)]);

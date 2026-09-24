@@ -86,7 +86,7 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
 
     // ── Global: Create (admin/manager) ───────────────────────────────────────
     $router->post('message-templates', function () use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'super_admin', 'property_manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $body   = Router::body();
         $user   = ApiAuth::user();
         // Force landlord_id to null so admins can't accidentally create scoped templates here
@@ -108,7 +108,7 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
 
     // ── Update ────────────────────────────────────────────────────────────────
     $router->put('message-templates/{id}', function (string $id) use ($db, $svc) {
-        ApiAuth::requireRole($db, 'admin', 'manager', 'super_admin', 'property_manager');
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager', 'landlord', 'owner');
         $result = $svc()->updateTemplate((int)$id, Router::body());
 
         if (!$result['success']) {
