@@ -467,3 +467,25 @@ DROP PROCEDURE IF EXISTS _rums_visitor_logs_create;
 -- ── Scheduled cleanup (add to cron or run weekly) ──────────
 -- DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
 -- DELETE FROM api_request_logs WHERE created_at  < DATE_SUB(NOW(), INTERVAL 90 DAY);
+
+-- ============================================================
+-- Migration: Force password change on first login
+-- ============================================================
+DROP PROCEDURE IF EXISTS _rums_migrate_must_change_password;
+DELIMITER $$
+CREATE PROCEDURE _rums_migrate_must_change_password()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'must_change_password'
+    ) THEN
+        ALTER TABLE `users`
+            ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAULT 0
+            AFTER `status`;
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_migrate_must_change_password();
+DROP PROCEDURE IF EXISTS _rums_migrate_must_change_password;

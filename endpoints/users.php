@@ -13,82 +13,93 @@
  * DELETE /api/v1/tokens/{id}            revoke any token (admin)
  */
 
-function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink): string
+function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink, string $tempPassword, string $loginUrl): string
 {
     $roleLabel = ucfirst($role);
     $year      = date('Y');
     return <<<HTML
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 0;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <!-- Header -->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Welcome to RUMS</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:48px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:6px;border:1px solid #e4e4e4;">
+
+  <!-- Wordmark -->
+  <tr>
+    <td style="padding:36px 48px 0;">
+      <span style="font-size:18px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
+    </td>
+  </tr>
+
+  <!-- Divider -->
+  <tr><td style="padding:20px 48px 0;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;"></td></tr></table></td></tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:32px 48px 0;">
+      <p style="margin:0 0 20px;font-size:15px;color:#111111;">Hi <strong>{$name}</strong>,</p>
+      <p style="margin:0 0 28px;font-size:14px;line-height:1.7;color:#555555;">
+        Your RUMS account has been created. Use the details below to log in.
+        You will be asked to set a new password on your first login.
+      </p>
+
+      <!-- Credentials -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
         <tr>
-          <td style="background:#1a56db;padding:32px 40px;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">Welcome to RUMS</h1>
-            <p style="margin:8px 0 0;color:#bfdbfe;font-size:14px;">Rental & Unit Management System</p>
-          </td>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;width:140px;">Login URL</td>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;"><a href="{$loginUrl}" style="color:#1a56db;text-decoration:none;">{$loginUrl}</a></td>
         </tr>
-        <!-- Body -->
         <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 16px;font-size:16px;color:#111827;">Hi <strong>{$name}</strong>,</p>
-            <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">
-              Your RUMS account has been created. Below are your account details:
-            </p>
-            <!-- Account details box -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin:0 0 24px;">
-              <tr>
-                <td style="padding:16px 20px;">
-                  <table width="100%" cellpadding="4" cellspacing="0">
-                    <tr>
-                      <td style="font-size:13px;color:#6b7280;width:100px;">Email</td>
-                      <td style="font-size:13px;color:#111827;font-weight:600;">{$email}</td>
-                    </tr>
-                    <tr>
-                      <td style="font-size:13px;color:#6b7280;">Role</td>
-                      <td style="font-size:13px;color:#111827;font-weight:600;">{$roleLabel}</td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6;">
-              To activate your account and set your password, click the button below.
-              This link expires in <strong>72 hours</strong>.
-            </p>
-            <!-- CTA button -->
-            <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
-              <tr>
-                <td style="background:#1a56db;border-radius:6px;">
-                  <a href="{$setupLink}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">
-                    Set Up My Password
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">
-              If the button above doesn't work, copy and paste this link into your browser:
-            </p>
-            <p style="margin:0 0 32px;font-size:12px;color:#1a56db;word-break:break-all;">{$setupLink}</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 24px;">
-            <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
-              If you did not expect this email, you can safely ignore it. Your account will remain inactive until the link is used.
-            </p>
-          </td>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;">Email</td>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#111111;">{$email}</td>
         </tr>
-        <!-- Footer -->
         <tr>
-          <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
-            <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; {$year} RUMS. All rights reserved.</p>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;">Temporary Password</td>
+          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;font-family:'Courier New',monospace;font-weight:700;color:#111111;letter-spacing:0.5px;">{$tempPassword}</td>
+        </tr>
+        <tr>
+          <td style="padding:9px 0;font-size:13px;color:#888888;">Role</td>
+          <td style="padding:9px 0;font-size:13px;color:#111111;">{$roleLabel}</td>
+        </tr>
+      </table>
+
+      <p style="margin:0 0 20px;font-size:13px;line-height:1.7;color:#555555;">
+        You can also set a permanent password now using the link below — it expires in 72 hours.
+      </p>
+
+      <!-- CTA -->
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+        <tr>
+          <td style="background:#1a56db;border-radius:5px;">
+            <a href="{$setupLink}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;">Set Up My Password</a>
           </td>
         </tr>
       </table>
-    </td></tr>
-  </table>
+
+      <p style="margin:0 0 4px;font-size:12px;color:#aaaaaa;">Or copy this link:</p>
+      <p style="margin:0;font-size:12px;color:#1a56db;word-break:break-all;">{$setupLink}</p>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="padding:32px 48px;margin-top:32px;">
+      <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;padding-top:20px;font-size:12px;color:#aaaaaa;line-height:1.6;">
+        If you were not expecting this, you can safely ignore it.
+        &nbsp;&middot;&nbsp; &copy; {$year} RUMS
+      </td></tr></table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
 </body>
 </html>
 HTML;
@@ -100,49 +111,55 @@ function buildPasswordResetEmail(string $name, string $resetLink): string
     return <<<HTML
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 0;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Password Reset — RUMS</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:48px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:6px;border:1px solid #e4e4e4;">
+
+  <tr><td style="padding:36px 48px 0;">
+    <span style="font-size:18px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
+  </td></tr>
+
+  <tr><td style="padding:20px 48px 0;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;"></td></tr></table></td></tr>
+
+  <tr>
+    <td style="padding:32px 48px 0;">
+      <p style="margin:0 0 20px;font-size:15px;color:#111111;">Hi <strong>{$name}</strong>,</p>
+      <p style="margin:0 0 24px;font-size:14px;line-height:1.7;color:#555555;">
+        We received a request to reset your RUMS password. Click the button below —
+        this link expires in <strong>1 hour</strong>.
+      </p>
+
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
         <tr>
-          <td style="background:#1a56db;padding:32px 40px;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">Password Reset</h1>
-            <p style="margin:8px 0 0;color:#bfdbfe;font-size:14px;">Rental & Unit Management System</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 16px;font-size:16px;color:#111827;">Hi <strong>{$name}</strong>,</p>
-            <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6;">
-              We received a request to reset your RUMS password. Click the button below to choose a new password.
-              This link expires in <strong>1 hour</strong>.
-            </p>
-            <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
-              <tr>
-                <td style="background:#1a56db;border-radius:6px;">
-                  <a href="{$resetLink}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">
-                    Reset My Password
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Or copy this link:</p>
-            <p style="margin:0 0 32px;font-size:12px;color:#1a56db;word-break:break-all;">{$resetLink}</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 24px;">
-            <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
-              If you didn't request a password reset, you can safely ignore this email.
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
-            <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; {$year} RUMS. All rights reserved.</p>
+          <td style="background:#1a56db;border-radius:5px;">
+            <a href="{$resetLink}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;">Reset My Password</a>
           </td>
         </tr>
       </table>
-    </td></tr>
-  </table>
+
+      <p style="margin:0 0 4px;font-size:12px;color:#aaaaaa;">Or copy this link:</p>
+      <p style="margin:0;font-size:12px;color:#1a56db;word-break:break-all;">{$resetLink}</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding:32px 48px;">
+      <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;padding-top:20px;font-size:12px;color:#aaaaaa;line-height:1.6;">
+        If you didn't request this, ignore it — your account has not been changed.
+        &nbsp;&middot;&nbsp; &copy; {$year} RUMS
+      </td></tr></table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
 </body>
 </html>
 HTML;
@@ -208,13 +225,13 @@ function registerUserRoutes(Router $router, PDO $db): void
             ApiResponse::badRequest('Invalid role. Must be one of: ' . implode(', ', $validRoles));
         }
 
-        $plain = !empty($body['password']) ? $body['password'] : 'Rums@1234.';
+        $plain = 'Rums@1234';
         $hash  = password_hash($plain, PASSWORD_BCRYPT, ['cost' => 10]);
 
         $db->beginTransaction();
         try {
             $db->prepare(
-                "INSERT INTO users (name, email, phone, role, password, status) VALUES (?,?,?,?,?,'active')"
+                "INSERT INTO users (name, email, phone, role, password, status, must_change_password) VALUES (?,?,?,?,?,'active',1)"
             )->execute([$body['name'], $body['email'], $body['phone'] ?? null, $body['role'], $hash]);
             $userId = (int)$db->lastInsertId();
 
@@ -294,11 +311,12 @@ function registerUserRoutes(Router $router, PDO $db): void
 
                 $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
                 $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
+                $loginUrl    = $frontendUrl . '/login';
 
                 $result = $mailer->send(
                     $body['email'],
-                    'Welcome to RUMS — Set Up Your Password',
-                    buildWelcomeEmail($body['name'], $body['role'], $body['email'], $setupLink)
+                    'Welcome to RUMS — Your Account Details',
+                    buildWelcomeEmail($body['name'], $body['role'], $body['email'], $setupLink, $plain, $loginUrl)
                 );
 
                 $emailSent  = $result['success'];
@@ -382,6 +400,45 @@ function registerUserRoutes(Router $router, PDO $db): void
         }
 
         ApiResponse::ok(null, 'User updated.');
+    });
+
+    $router->delete('users/{id}', function (string $id) use ($db) {
+        ApiAuth::requireRole($db, 'admin', 'super_admin');
+        $targetId = (int)$id;
+
+        if ($targetId === ApiAuth::userId()) {
+            ApiResponse::forbidden('You cannot delete your own account.');
+        }
+
+        $stmt = $db->prepare("SELECT id, name, role FROM users WHERE id = ?");
+        $stmt->execute([$targetId]);
+        $target = $stmt->fetch();
+        if (!$target) ApiResponse::notFound('User not found.');
+
+        // Revoke tokens from cache before the transaction so they stop working immediately
+        ApiAuth::invalidateUserTokens($db, $targetId);
+
+        $db->beginTransaction();
+        try {
+            // Nullify RESTRICT FK references that would block the DELETE
+            $db->prepare("UPDATE bank_statement_entries SET imported_by  = NULL WHERE imported_by  = ?")->execute([$targetId]);
+            $db->prepare("UPDATE message_templates       SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
+            $db->prepare("UPDATE broadcast_messages      SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
+            $db->prepare("UPDATE reports_scheduled       SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
+            $db->prepare("UPDATE documents               SET uploaded_by = NULL WHERE uploaded_by  = ?")->execute([$targetId]);
+
+            // Hard-delete tokens (CASCADE would handle this but being explicit)
+            $db->prepare("DELETE FROM api_tokens WHERE user_id = ?")->execute([$targetId]);
+
+            $db->prepare("DELETE FROM users WHERE id = ?")->execute([$targetId]);
+
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            ApiResponse::serverError('Could not delete user: ' . $e->getMessage());
+        }
+
+        ApiResponse::ok(null, "User \"{$target['name']}\" has been deleted.");
     });
 
     $router->patch('users/{id}/status', function (string $id) use ($db) {

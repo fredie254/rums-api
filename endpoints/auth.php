@@ -23,7 +23,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
         }
 
         $stmt = $db->prepare(
-            "SELECT id, name, email, role, status, password FROM users WHERE email = ? LIMIT 1"
+            "SELECT id, name, email, role, status, password, must_change_password FROM users WHERE email = ? LIMIT 1"
         );
         $stmt->execute([$email]);
         $u = $stmt->fetch();
@@ -82,11 +82,12 @@ function registerAuthRoutes(Router $router, PDO $db): void
             'token_type' => 'Bearer',
             'expires_in' => $ttl > 0 ? $ttl * 86400 : null,
             'user' => [
-                'id'     => $u['id'],
-                'name'   => $u['name'],
-                'email'  => $u['email'],
-                'role'   => $u['role'],
-                'status' => $u['status'],
+                'id'                  => $u['id'],
+                'name'                => $u['name'],
+                'email'               => $u['email'],
+                'role'                => $u['role'],
+                'status'              => $u['status'],
+                'must_change_password' => (bool)$u['must_change_password'],
             ],
         ], 'Login successful.');
     });
@@ -109,11 +110,12 @@ function registerAuthRoutes(Router $router, PDO $db): void
     $router->get('auth/me', function () use ($db) {
         $token = ApiAuth::require($db);
         $stmt  = $db->prepare(
-            "SELECT id, name, email, phone, role, status, last_login, created_at
+            "SELECT id, name, email, phone, role, status, must_change_password, last_login, created_at
              FROM users WHERE id = ?"
         );
         $stmt->execute([$token['user_id']]);
         $u = $stmt->fetch();
+        $u['must_change_password'] = (bool)$u['must_change_password'];
 
         ApiResponse::ok([
             'user'  => $u,
@@ -157,7 +159,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
             ApiResponse::unauthorized('Current password is incorrect.');
         }
 
-        $db->prepare("UPDATE users SET password = ? WHERE id = ?")
+        $db->prepare("UPDATE users SET password = ?, must_change_password = 0 WHERE id = ?")
            ->execute([password_hash($new, PASSWORD_BCRYPT, ['cost' => 10]), $token['user_id']]);
         ApiResponse::ok(null, 'Password changed successfully.');
     });
@@ -250,7 +252,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
         if (!$user) ApiResponse::badRequest('Invalid or expired setup link. Please contact your administrator.');
 
         $db->prepare(
-            "UPDATE users SET password = ?, status = 'active',
+            "UPDATE users SET password = ?, must_change_password = 0, status = 'active',
              password_reset_token = NULL, password_reset_expires = NULL WHERE id = ?"
         )->execute([password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]), $user['id']]);
 
