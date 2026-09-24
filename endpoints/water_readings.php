@@ -137,7 +137,7 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
         }
 
         $totalPages = $total > 0 ? (int)ceil($total / $perPage) : 1;
-        ApiResponse::ok($rows, null, [
+        ApiResponse::ok($rows, '', [
             'total'        => $total,
             'per_page'     => $perPage,
             'current_page' => $page,
