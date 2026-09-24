@@ -219,8 +219,86 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
             $body['notes'] ?? null,
             $user['id'],
         ]);
+        $wrId = (int)$db->lastInsertId();
 
-        ApiResponse::created(['id' => (int)$db->lastInsertId()], 'Water reading recorded.');
+        // Auto-generate invoice for the reading's month if one doesn't exist yet
+        $invoiceId = null;
+        if ($leaseId && $waterRate > 0 && (float)$prevVal !== false) {
+            $readingYear  = (int)substr($readingDate, 0, 4);
+            $readingMonth = (int)substr($readingDate, 5, 2);
+
+            $dupCheck = $db->prepare(
+                "SELECT id FROM invoices
+                 WHERE lease_id = ? AND period_year = ? AND period_month = ? LIMIT 1"
+            );
+            $dupCheck->execute([$leaseId, $readingYear, $readingMonth]);
+            $existingInvoice = $dupCheck->fetchColumn();
+
+            if (!$existingInvoice) {
+                // Fetch lease + unit details for invoice
+                $leaseRow = $db->prepare(
+                    "SELECT l.tenant_id, l.monthly_rent, l.payment_day,
+                            u.garbage_fee, u.service_fee,
+                            COALESCE(u.utility_charge, 0) AS other_utility
+                     FROM leases l JOIN units u ON u.id = l.unit_id
+                     WHERE l.id = ? LIMIT 1"
+                );
+                $leaseRow->execute([$leaseId]);
+                $lease = $leaseRow->fetch();
+
+                if ($lease) {
+                    $rent        = (float)$lease['monthly_rent'];
+                    $garbageFee  = (float)($lease['garbage_fee']  ?? 0);
+                    $serviceFee  = (float)($lease['service_fee']  ?? 0);
+                    $otherUtil   = (float)($lease['other_utility'] ?? 0);
+                    $consumption = max(0, $readingValue - (float)$prevVal);
+                    $waterAmount = round($consumption * $waterRate, 2);
+                    $utilityTotal = round($waterAmount + $garbageFee + $serviceFee + $otherUtil, 2);
+                    $total        = round($rent + $utilityTotal, 2);
+
+                    $daysInMonth  = (int)date('t', mktime(0, 0, 0, $readingMonth, 1, $readingYear));
+                    $payDay       = min((int)$lease['payment_day'], $daysInMonth);
+                    $invDate      = sprintf('%04d-%02d-01', $readingYear, $readingMonth);
+                    $dueDate      = sprintf('%04d-%02d-%02d', $readingYear, $readingMonth, $payDay);
+                    $monthName    = date('F', mktime(0, 0, 0, $readingMonth, 1, $readingYear));
+                    $placeholder  = 'PENDING-' . bin2hex(random_bytes(8));
+
+                    $db->prepare(
+                        "INSERT INTO invoices
+                            (lease_id, invoice_type, unit_id, tenant_id, invoice_number,
+                             invoice_date, due_date, rent_amount, utility_amount, total_amount,
+                             amount_paid, period_month, period_year,
+                             meter_reading_prev, meter_reading_curr, status)
+                         VALUES (?, 'mixed', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'unpaid')"
+                    )->execute([
+                        $leaseId, $unitId, $lease['tenant_id'], $placeholder,
+                        $invDate, $dueDate, $rent, $utilityTotal, $total,
+                        $readingMonth, $readingYear,
+                        (float)$prevVal, $readingValue,
+                    ]);
+                    $invoiceId = (int)$db->lastInsertId();
+                    $invNum    = sprintf('INV-%04d-%06d', $readingYear, $invoiceId);
+                    $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")->execute([$invNum, $invoiceId]);
+
+                    // Mark water reading as invoiced
+                    $db->prepare("UPDATE water_readings SET invoiced = 1, invoice_id = ? WHERE id = ?")->execute([$invoiceId, $wrId]);
+
+                    $itemStmt = $db->prepare(
+                        "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, item_type)
+                         VALUES (?, ?, ?, ?, ?)"
+                    );
+                    $itemStmt->execute([$invoiceId, "Monthly Rent — $monthName $readingYear", 1, $rent, 'rent']);
+                    $itemStmt->execute([$invoiceId, "Water — {$consumption} m³ @ KES {$waterRate}/m³", $consumption, $waterRate, 'water']);
+                    if ($garbageFee > 0) $itemStmt->execute([$invoiceId, 'Garbage Collection Fee', 1, $garbageFee, 'garbage']);
+                    if ($serviceFee  > 0) $itemStmt->execute([$invoiceId, 'Service / Maintenance Fee', 1, $serviceFee, 'service']);
+                    if ($otherUtil   > 0) $itemStmt->execute([$invoiceId, 'Utilities', 1, $otherUtil, 'utility']);
+                }
+            }
+        }
+
+        $resp = ['id' => $wrId];
+        if ($invoiceId) $resp['invoice_id'] = $invoiceId;
+        ApiResponse::created($resp, $invoiceId ? 'Water reading recorded and invoice generated.' : 'Water reading recorded.');
     });
 
     // ── View single ───────────────────────────────────────────
