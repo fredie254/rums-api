@@ -321,14 +321,72 @@ function registerUserRoutes(Router $router, PDO $db): void
             : 'User created. Welcome email could not be sent' . ($emailError ? ': ' . $emailError : '.'));
     });
 
+    // POST /users/{id}/resend-welcome ─────────────────────────────
+    $router->post('users/{id}/resend-welcome', function (string $id) use ($db) {
+        ApiAuth::requireRole($db, 'admin');
+        $targetId = (int)$id;
+
+        $stmt = $db->prepare("SELECT id, name, email, role FROM users WHERE id = ?");
+        $stmt->execute([$targetId]);
+        $target = $stmt->fetch();
+        if (!$target) ApiResponse::notFound('User not found.');
+
+        // Refresh setup token (72 hrs)
+        $setupToken  = bin2hex(random_bytes(32));
+        $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
+        $db->prepare(
+            "UPDATE users SET password_reset_token = ?, password_reset_expires = ?, must_change_password = 1 WHERE id = ?"
+        )->execute([$setupToken, $tokenExpiry, $targetId]);
+
+        try {
+            require_once __DIR__ . '/../services/MailService.php';
+
+            $display = $db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('company_name','mail_from_name','mail_from_email')");
+            $display->execute();
+            $cfg = array_column($display->fetchAll(), 'setting_value', 'setting_key');
+
+            $mailer = new MailService([
+                'smtp_host'       => env('MAIL_HOST',       ''),
+                'smtp_port'       => (int)env('MAIL_PORT',  465),
+                'smtp_user'       => env('MAIL_USER',       ''),
+                'smtp_pass'       => env('MAIL_PASS',       ''),
+                'smtp_encryption' => env('MAIL_ENCRYPTION', 'ssl'),
+                'from_name'       => env('MAIL_FROM_NAME',  $cfg['mail_from_name']  ?? ($cfg['company_name'] ?? 'RUMS')),
+                'from_email'      => env('MAIL_FROM_EMAIL', $cfg['mail_from_email'] ?? env('MAIL_USER', '')),
+            ]);
+
+            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+            $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
+            $loginUrl    = $frontendUrl . '/login';
+
+            $result = $mailer->send(
+                $target['email'],
+                'Welcome to RUMS — Your Account Details',
+                buildWelcomeEmail($target['name'], $target['role'], $target['email'], $setupLink, 'Rums@1234', $loginUrl)
+            );
+
+            if (!$result['success']) {
+                error_log('[RUMS] Resend welcome failed for user ' . $targetId . ': ' . ($result['error'] ?? ''));
+                ApiResponse::serverError('Email could not be sent: ' . ($result['error'] ?? 'Unknown error'));
+            }
+        } catch (Throwable $e) {
+            error_log('[RUMS] Resend welcome exception for user ' . $targetId . ': ' . $e->getMessage());
+            ApiResponse::serverError('Email could not be sent: ' . $e->getMessage());
+        }
+
+        ApiResponse::ok(null, 'Welcome email resent to ' . $target['email'] . '.');
+    });
+
     $router->get('users/{id}', function (string $id) use ($db) {
         ApiAuth::requireRole($db, 'admin');
         $stmt = $db->prepare(
-            "SELECT id, name, email, phone, role, status, last_login, created_at FROM users WHERE id = ?"
+            "SELECT id, name, email, phone, role, status, must_change_password, last_login, created_at FROM users WHERE id = ?"
         );
         $stmt->execute([(int)$id]);
         $u = $stmt->fetch();
-        $u ? ApiResponse::ok($u) : ApiResponse::notFound('User not found.');
+        if (!$u) ApiResponse::notFound('User not found.');
+        $u['must_change_password'] = (bool)$u['must_change_password'];
+        ApiResponse::ok($u);
     });
 
     $router->patch('users/{id}', function (string $id) use ($db) {
