@@ -218,7 +218,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
             )->execute([$token, $expires, $user['id']]);
 
             $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
-            $resetLink   = $frontendUrl . '/reset-password?token=' . $token;
+            $resetLink   = $frontendUrl . '/setup-password?token=' . $token;
 
             try {
                 require_once __DIR__ . '/../services/NotificationService.php';
