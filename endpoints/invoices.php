@@ -21,8 +21,6 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $month  = (int)($body['month']       ?? date('n'));
         $propId = (int)($body['property_id'] ?? 0);
 
-        // Count total active leases for the response summary (2 queries total
-        // instead of the previous 1 + N duplicate-check queries).
         $countParams = $propId ? [$propId] : [];
         $countFilter = $propId ? 'AND u.property_id = ?' : '';
         $totalStmt   = $db->prepare(
@@ -32,18 +30,21 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $totalStmt->execute($countParams);
         $totalLeases = (int)$totalStmt->fetchColumn();
 
-        // Fetch only leases that do NOT yet have an invoice for this period.
-        // A single NOT EXISTS subquery replaces the previous N per-lease COUNT queries.
         $leasesParams = [$year, $month];
         if ($propId) $leasesParams[] = $propId;
         $leasesStmt = $db->prepare(
-            "SELECT l.id, l.tenant_id, l.monthly_rent, l.payment_day, l.grace_period_days,
-                    COALESCE(u.utility_charge, 0) AS utility_charge
-             FROM leases l JOIN units u ON u.id = l.unit_id
+            "SELECT l.id AS lease_id, l.tenant_id, l.monthly_rent, l.payment_day,
+                    u.id AS unit_id,
+                    COALESCE(u.water_rate, 0)   AS water_rate,
+                    COALESCE(u.garbage_fee, 0)  AS garbage_fee,
+                    COALESCE(u.service_fee, 0)  AS service_fee,
+                    COALESCE(u.utility_charge, 0) AS other_utility
+             FROM leases l
+             JOIN units u ON u.id = l.unit_id
              WHERE l.status = 'active'
                AND NOT EXISTS (
                    SELECT 1 FROM invoices i2
-                   WHERE i2.lease_id   = l.id
+                   WHERE i2.lease_id    = l.id
                      AND i2.period_year  = ?
                      AND i2.period_month = ?
                ) $countFilter"
@@ -55,33 +56,91 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $created     = 0;
         $invDateStr  = sprintf('%04d-%02d-01', $year, $month);
         $daysInMonth = (int)date('t', strtotime($invDateStr));
+        $periodEnd   = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
+        $monthName   = date('F', mktime(0, 0, 0, $month, 1, $year));
+
+        // Prepared statements reused per lease
+        $waterStmt = $db->prepare(
+            "SELECT wr.reading_value AS curr_val,
+                    (SELECT prev.reading_value FROM water_readings prev
+                     WHERE prev.unit_id = wr.unit_id
+                       AND (prev.reading_date < wr.reading_date
+                            OR (prev.reading_date = wr.reading_date AND prev.id < wr.id))
+                     ORDER BY prev.reading_date DESC, prev.id DESC LIMIT 1) AS prev_val
+             FROM water_readings wr
+             WHERE wr.unit_id = ?
+               AND wr.reading_date <= ?
+               AND wr.is_initial = 0
+             ORDER BY wr.reading_date DESC, wr.id DESC
+             LIMIT 1"
+        );
+        $itemStmt = $db->prepare(
+            "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, item_type)
+             VALUES (?, ?, ?, ?, ?)"
+        );
 
         foreach ($leases as $lease) {
-            // due_date = payment_day of the invoice month (clamped to last day)
             $payDay  = min((int)$lease['payment_day'], $daysInMonth);
             $dueDate = sprintf('%04d-%02d-%02d', $year, $month, $payDay);
-            $rent    = (float)$lease['monthly_rent'];
-            $utility = (float)$lease['utility_charge'];
-            $total   = round($rent + $utility, 2);
+            $rent       = (float)$lease['monthly_rent'];
+            $waterRate  = (float)$lease['water_rate'];
+            $garbageFee = (float)$lease['garbage_fee'];
+            $serviceFee = (float)$lease['service_fee'];
+            $otherUtil  = (float)$lease['other_utility'];
 
-            // Insert with a random placeholder so the NOT NULL + UNIQUE constraint
-            // is satisfied. The real formatted number is written immediately after
-            // using the guaranteed-unique auto-increment id — no SELECT MAX()+1 race.
+            // Water: look for the most recent uninvoiced reading in/before this period
+            $waterAmount = 0.0;
+            $prevReading = null;
+            $currReading = null;
+            if ($waterRate > 0) {
+                $waterStmt->execute([$lease['unit_id'], $periodEnd]);
+                $wr = $waterStmt->fetch();
+                if ($wr && $wr['prev_val'] !== null) {
+                    $currReading = (float)$wr['curr_val'];
+                    $prevReading = (float)$wr['prev_val'];
+                    $consumption = max(0, $currReading - $prevReading);
+                    $waterAmount = round($consumption * $waterRate, 2);
+                }
+            }
+
+            $utilityTotal = round($waterAmount + $garbageFee + $serviceFee + $otherUtil, 2);
+            $total        = round($rent + $utilityTotal, 2);
+            $invoiceType  = $utilityTotal > 0 ? 'mixed' : 'rent';
+
             $placeholder = 'PENDING-' . bin2hex(random_bytes(8));
             $db->prepare(
                 "INSERT INTO invoices
-                    (lease_id, tenant_id, invoice_number, invoice_date, due_date,
-                     rent_amount, utility_amount, total_amount, amount_paid,
-                     period_month, period_year, status)
-                 VALUES (?,?,?,?,?,?,?,?,0,?,?,'unpaid')"
+                    (lease_id, invoice_type, unit_id, tenant_id, invoice_number,
+                     invoice_date, due_date, rent_amount, utility_amount, total_amount,
+                     amount_paid, period_month, period_year,
+                     meter_reading_prev, meter_reading_curr, status)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,'unpaid')"
             )->execute([
-                $lease['id'], $lease['tenant_id'], $placeholder,
-                $invDateStr, $dueDate, $rent, $utility, $total, $month, $year,
+                $lease['lease_id'], $invoiceType, $lease['unit_id'], $lease['tenant_id'],
+                $placeholder, $invDateStr, $dueDate,
+                $rent, $utilityTotal, $total, $month, $year,
+                $prevReading, $currReading,
             ]);
             $newId  = (int)$db->lastInsertId();
             $invNum = sprintf('INV-%04d-%06d', $year, $newId);
             $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")
                ->execute([$invNum, $newId]);
+
+            // Line items
+            $itemStmt->execute([$newId, "Monthly Rent — $monthName $year", 1, $rent, 'rent']);
+            if ($waterAmount > 0) {
+                $cons = round($currReading - $prevReading, 4);
+                $itemStmt->execute([$newId, "Water — {$cons} m³ @ KES {$waterRate}/m³", $cons, $waterRate, 'water']);
+            }
+            if ($garbageFee > 0) {
+                $itemStmt->execute([$newId, 'Garbage Collection Fee', 1, $garbageFee, 'garbage']);
+            }
+            if ($serviceFee > 0) {
+                $itemStmt->execute([$newId, 'Service / Maintenance Fee', 1, $serviceFee, 'service']);
+            }
+            if ($otherUtil > 0) {
+                $itemStmt->execute([$newId, 'Utilities', 1, $otherUtil, 'utility']);
+            }
             $created++;
         }
 
@@ -331,6 +390,13 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         );
         $ps->execute([(int)$id]);
         $inv['payments'] = $ps->fetchAll();
+
+        $is = $db->prepare(
+            "SELECT id, description, quantity, unit_price, subtotal, item_type
+             FROM invoice_items WHERE invoice_id = ? ORDER BY id"
+        );
+        $is->execute([(int)$id]);
+        $inv['items'] = $is->fetchAll();
 
         ApiResponse::ok($inv);
     });
