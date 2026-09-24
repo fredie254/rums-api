@@ -2847,6 +2847,7 @@ CREATE TABLE `maintenance_request_logs` (
 
 CREATE TABLE `message_templates` (
   `id` int UNSIGNED NOT NULL,
+  `landlord_id` int UNSIGNED DEFAULT NULL COMMENT 'NULL = global default; set = landlord override',
   `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
   `category` enum('payment','lease','maintenance','broadcast','general') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'general',
   `channel` enum('sms','email','both') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'both',
@@ -2919,6 +2920,30 @@ CREATE TABLE `mfa_secrets` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `mpesa_configs`
+--
+
+CREATE TABLE `mpesa_configs` (
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
+  `landlord_id` int UNSIGNED NOT NULL,
+  `shortcode` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `shortcode_type` enum('paybill','till') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'paybill',
+  `consumer_key` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `consumer_secret` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `passkey` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `environment` enum('sandbox','production') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'production',
+  `urls_registered` tinyint(1) NOT NULL DEFAULT '0',
+  `urls_registered_at` datetime DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `created_by` int UNSIGNED DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `mpesa_transactions`
 --
 
@@ -2928,6 +2953,7 @@ CREATE TABLE `mpesa_transactions` (
   `checkout_request_id` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `merchant_request_id` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payment_id` int UNSIGNED DEFAULT NULL,
+  `lease_id` int UNSIGNED DEFAULT NULL,
   `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `msisdn` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `first_name` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2957,6 +2983,26 @@ CREATE TABLE `notifications` (
   `link` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `notification_preferences`
+--
+
+CREATE TABLE `notification_preferences` (
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
+  `landlord_id` int UNSIGNED NOT NULL,
+  `email_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `sms_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `inapp_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `notify_payment` tinyint(1) NOT NULL DEFAULT '1',
+  `notify_maintenance` tinyint(1) NOT NULL DEFAULT '1',
+  `notify_lease_expiry` tinyint(1) NOT NULL DEFAULT '1',
+  `notify_overdue` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -2998,6 +3044,7 @@ CREATE TABLE `payments` (
   `payment_method` enum('cash','mpesa','bank','cheque','bank_transfer','card','other') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cash',
   `payment_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'rent',
   `mpesa_transaction_id` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mpesa_receipt` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cheque_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text COLLATE utf8mb4_unicode_ci,
   `status` enum('completed','pending','reversed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'completed',
@@ -3389,7 +3436,11 @@ ALTER TABLE `invoices`
   ADD UNIQUE KEY `uq_invoice_number` (`invoice_number`),
   ADD KEY `fk_invoices_lease` (`lease_id`),
   ADD KEY `fk_invoices_tenant` (`tenant_id`),
-  ADD KEY `idx_invoices_period` (`lease_id`,`period_year`,`period_month`);
+  ADD KEY `idx_invoices_period` (`lease_id`,`period_year`,`period_month`),
+  ADD KEY `idx_inv_status` (`status`),
+  ADD KEY `idx_inv_due_date` (`due_date`),
+  ADD KEY `idx_inv_lease_stat` (`lease_id`,`status`),
+  ADD KEY `idx_inv_created` (`created_at`);
 
 --
 -- Indexes for table `kyc_documents`
@@ -3417,7 +3468,10 @@ ALTER TABLE `leases`
   ADD KEY `fk_leases_tenant` (`tenant_id`),
   ADD KEY `fk_leases_template` (`template_id`),
   ADD KEY `fk_leases_renewed_from` (`renewed_from_id`),
-  ADD KEY `fk_leases_signed_by` (`signed_by`);
+  ADD KEY `fk_leases_signed_by` (`signed_by`),
+  ADD KEY `idx_lease_status` (`status`),
+  ADD KEY `idx_lease_status_end` (`status`,`end_date`),
+  ADD KEY `idx_lease_unit_status` (`unit_id`,`status`);
 
 --
 -- Indexes for table `lease_documents`
@@ -3451,15 +3505,21 @@ ALTER TABLE `maintenance_requests`
   ADD UNIQUE KEY `uq_request_number` (`request_number`),
   ADD KEY `fk_mr_unit` (`unit_id`),
   ADD KEY `fk_mr_tenant` (`tenant_id`),
-  ADD KEY `fk_mr_assigned_to` (`assigned_to`);
+  ADD KEY `fk_mr_assigned_to` (`assigned_to`),
+  ADD KEY `idx_maint_status` (`status`),
+  ADD KEY `idx_maint_priority` (`priority`),
+  ADD KEY `idx_maint_stat_pri` (`status`,`priority`),
+  ADD KEY `idx_maint_created` (`created_at`);
 
 --
 -- Indexes for table `message_templates`
 --
 ALTER TABLE `message_templates`
   ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_landlord_cat_chan` (`landlord_id`,`category`,`channel`),
   ADD KEY `idx_mt_category` (`category`),
   ADD KEY `idx_mt_channel` (`channel`),
+  ADD KEY `fk_mt_landlord` (`landlord_id`),
   ADD KEY `fk_mt_created_by` (`created_by`);
 
 --
@@ -3487,6 +3547,17 @@ ALTER TABLE `mfa_secrets`
   ADD UNIQUE KEY `uq_mfa_secrets_user` (`user_id`);
 
 --
+-- Indexes for table `mpesa_configs`
+--
+ALTER TABLE `mpesa_configs`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_mc_landlord` (`landlord_id`),
+  ADD UNIQUE KEY `uk_mc_shortcode` (`shortcode`),
+  ADD KEY `fk_mc_landlord` (`landlord_id`),
+  ADD KEY `fk_mc_creator` (`created_by`),
+  ADD KEY `idx_mc_active` (`is_active`);
+
+--
 -- Indexes for table `mpesa_transactions`
 --
 ALTER TABLE `mpesa_transactions`
@@ -3494,7 +3565,8 @@ ALTER TABLE `mpesa_transactions`
   ADD UNIQUE KEY `uq_mpesa_checkout_req` (`checkout_request_id`),
   ADD KEY `idx_mpesa_status` (`status`),
   ADD KEY `idx_mpesa_created_at` (`created_at`),
-  ADD KEY `fk_mpesa_payment` (`payment_id`);
+  ADD KEY `fk_mpesa_payment` (`payment_id`),
+  ADD KEY `fk_mptx_lease` (`lease_id`);
 
 --
 -- Indexes for table `notifications`
@@ -3502,7 +3574,16 @@ ALTER TABLE `mpesa_transactions`
 ALTER TABLE `notifications`
   ADD PRIMARY KEY (`id`),
   ADD KEY `fk_notifications_user` (`user_id`),
-  ADD KEY `idx_notifications_read` (`user_id`,`is_read`);
+  ADD KEY `idx_notifications_read` (`user_id`,`is_read`),
+  ADD KEY `idx_notif_created` (`created_at`);
+
+--
+-- Indexes for table `notification_preferences`
+--
+ALTER TABLE `notification_preferences`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_np_landlord` (`landlord_id`),
+  ADD KEY `fk_notifpref_landlord` (`landlord_id`);
 
 --
 -- Indexes for table `occupancy_logs`
@@ -3522,9 +3603,14 @@ ALTER TABLE `occupancy_logs`
 ALTER TABLE `payments`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_payment_ref` (`payment_ref`),
+  ADD UNIQUE KEY `uk_mpesa_receipt` (`mpesa_receipt`),
   ADD KEY `fk_payments_lease` (`lease_id`),
   ADD KEY `fk_payments_invoice` (`invoice_id`),
-  ADD KEY `fk_payments_tenant` (`tenant_id`);
+  ADD KEY `fk_payments_tenant` (`tenant_id`),
+  ADD KEY `idx_pay_status` (`status`),
+  ADD KEY `idx_pay_payment_date` (`payment_date`),
+  ADD KEY `idx_pay_stat_date` (`status`,`payment_date`),
+  ADD KEY `idx_pay_tenant_stat` (`tenant_id`,`status`);
 
 --
 -- Indexes for table `properties`
@@ -3532,7 +3618,8 @@ ALTER TABLE `payments`
 ALTER TABLE `properties`
   ADD PRIMARY KEY (`id`),
   ADD KEY `fk_properties_landlord` (`landlord_id`),
-  ADD KEY `fk_properties_manager` (`manager_id`);
+  ADD KEY `fk_properties_manager` (`manager_id`),
+  ADD KEY `idx_prop_status` (`status`);
 
 --
 -- Indexes for table `report_schedules`
@@ -3575,7 +3662,9 @@ ALTER TABLE `tenants`
 ALTER TABLE `units`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_unit_in_property` (`property_id`,`unit_number`),
-  ADD KEY `fk_units_property` (`property_id`);
+  ADD KEY `fk_units_property` (`property_id`),
+  ADD KEY `idx_unit_status` (`status`),
+  ADD KEY `idx_unit_prop_status` (`property_id`,`status`);
 
 --
 -- Indexes for table `users`
@@ -3756,6 +3845,18 @@ ALTER TABLE `notifications`
 -- AUTO_INCREMENT for table `occupancy_logs`
 --
 ALTER TABLE `occupancy_logs`
+  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `mpesa_configs`
+--
+ALTER TABLE `mpesa_configs`
+  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `notification_preferences`
+--
+ALTER TABLE `notification_preferences`
   MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
@@ -3949,6 +4050,7 @@ ALTER TABLE `maintenance_requests`
 -- Constraints for table `message_templates`
 --
 ALTER TABLE `message_templates`
+  ADD CONSTRAINT `fk_mt_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `landlords` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_mt_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`);
 
 --
@@ -3970,16 +4072,30 @@ ALTER TABLE `mfa_secrets`
   ADD CONSTRAINT `fk_mfa_secrets_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `mpesa_configs`
+--
+ALTER TABLE `mpesa_configs`
+  ADD CONSTRAINT `fk_mc_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `landlords` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_mc_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
 -- Constraints for table `mpesa_transactions`
 --
 ALTER TABLE `mpesa_transactions`
-  ADD CONSTRAINT `fk_mpesa_payment` FOREIGN KEY (`payment_id`) REFERENCES `payments` (`id`) ON DELETE SET NULL;
+  ADD CONSTRAINT `fk_mpesa_payment` FOREIGN KEY (`payment_id`) REFERENCES `payments` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_mptx_lease` FOREIGN KEY (`lease_id`) REFERENCES `leases` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `notifications`
 --
 ALTER TABLE `notifications`
   ADD CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `notification_preferences`
+--
+ALTER TABLE `notification_preferences`
+  ADD CONSTRAINT `fk_notifpref_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `landlords` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `occupancy_logs`

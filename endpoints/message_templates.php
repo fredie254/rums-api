@@ -28,8 +28,8 @@ function registerMessageTemplateRoutes(Router $router, PDO $db): void
 
         try {
             $rows = $svc()->listEffectiveTemplates($landlordId);
-        } catch (Throwable) {
-            ApiResponse::serverError('Message templates not yet migrated. Please run migrations 015 and 018 on the server.');
+        } catch (Throwable $e) {
+            ApiResponse::serverError('[DEBUG] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine());
             return;
         }
 
