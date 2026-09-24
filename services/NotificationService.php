@@ -58,18 +58,18 @@ class NotificationService extends BaseService
     {
         if (empty($keys)) return [];
         $in     = implode(',', array_fill(0, count($keys), '?'));
-        $rows   = $this->fetchAll("SELECT `key`, `value` FROM settings WHERE `key` IN ($in)", $keys);
+        $rows   = $this->fetchAll("SELECT `setting_key`, `setting_value` FROM settings WHERE `setting_key` IN ($in)", $keys);
         $result = [];
         foreach ($rows as $row) {
-            $result[$row['key']] = $row['value'];
+            $result[$row['setting_key']] = $row['setting_value'];
         }
         return $result;
     }
 
     private function settingVal(string $key, string $default = ''): string
     {
-        $row = $this->fetchOne("SELECT `value` FROM settings WHERE `key` = ?", [$key]);
-        return $row ? (string)$row['value'] : $default;
+        $row = $this->fetchOne("SELECT `setting_value` FROM settings WHERE `setting_key` = ?", [$key]);
+        return $row ? (string)$row['setting_value'] : $default;
     }
 
     // ── Template rendering ─────────────────────────────────────
