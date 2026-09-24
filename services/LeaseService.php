@@ -177,6 +177,22 @@ class LeaseService extends BaseService
             return ['success' => false, 'message' => 'Failed to create lease: ' . $e->getMessage()];
         }
 
+        // Auto-create opening water meter reading on move-in (non-fatal if table not yet migrated)
+        try {
+            $unitInfo    = $this->fetchOne("SELECT water_rate FROM units WHERE id = ?", [(int)$data['unit_id']]);
+            $initReading = max(0.0, (float)($data['initial_reading'] ?? 0));
+            $wRate       = (float)($unitInfo['water_rate'] ?? 0);
+            $recBy       = class_exists('ApiAuth') ? ApiAuth::userId() : null;
+            $this->insert(
+                "INSERT INTO water_readings
+                    (unit_id, lease_id, reading_date, reading_value, water_rate, is_initial, notes, recorded_by)
+                 VALUES (?, ?, ?, ?, ?, 1, 'Opening meter reading — tenant move-in', ?)",
+                [(int)$data['unit_id'], $id, $data['start_date'], $initReading, $wRate, $recBy]
+            );
+        } catch (Throwable) {
+            // Non-fatal: lease was created; manager can add opening reading manually
+        }
+
         return ['success' => true, 'id' => $id, 'lease_number' => $lease_number, 'message' => 'Lease created.'];
     }
 

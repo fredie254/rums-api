@@ -152,6 +152,10 @@ registerInvoiceRoutes($router, $db);
 require_once __DIR__ . '/endpoints/maintenance.php';
 registerMaintenanceRoutes($router, $db);
 
+// ── Water Readings ────────────────────────────────────────────
+require_once __DIR__ . '/endpoints/water_readings.php';
+registerWaterReadingRoutes($router, $db);
+
 // ── Reports ───────────────────────────────────────────────────
 require_once __DIR__ . '/endpoints/reports.php';
 registerReportRoutes($router, $db);
@@ -230,6 +234,10 @@ registerMfaRoutes($router, $db);
 // ── GDPR & Privacy ────────────────────────────────────────────
 require_once __DIR__ . '/endpoints/gdpr.php';
 registerGdprRoutes($router, $db);
+
+// ── Backup & Export ───────────────────────────────────────────
+require_once __DIR__ . '/endpoints/backup.php';
+registerBackupRoutes($router, $db);
 
 // ── Dispatch ──────────────────────────────────────────────────
 try {

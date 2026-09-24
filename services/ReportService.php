@@ -7,54 +7,70 @@ class ReportService extends BaseService
 
     public function financial(string $dateFrom, string $dateTo, ?int $propertyId = null, ?int $landlordId = null): array
     {
-        $pf  = $propertyId ? "AND u.property_id = $propertyId" : '';
-        $lf  = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
-        $elf = $landlordId ? "AND e.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
+        $pf = $propertyId ? "AND u.property_id = $propertyId" : '';
+        $lf = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
+        // Per-transaction income rows
         $income = $this->fetchAll(
-            "SELECT DATE_FORMAT(p.payment_date,'%Y-%m') AS period,
-                p.payment_type AS category,
-                SUM(p.amount) AS amount, COUNT(*) AS count
-             FROM payments p
-             LEFT JOIN leases l ON l.id = p.lease_id
-             LEFT JOIN units u  ON u.id = l.unit_id
-             WHERE p.payment_date BETWEEN ? AND ? $pf $lf
-             GROUP BY period, p.payment_type
-             ORDER BY period",
-            [$dateFrom, $dateTo]
-        );
-
-        $expenses = $this->fetchAll(
-            "SELECT DATE_FORMAT(e.expense_date,'%Y-%m') AS period,
-                e.category, SUM(e.amount) AS amount, COUNT(*) AS count
-             FROM expenses e
-             WHERE e.expense_date BETWEEN ? AND ?
-               AND e.status IN ('approved','paid')
-               " . ($propertyId ? "AND e.property_id = $propertyId" : '') . " $elf
-             GROUP BY period, e.category ORDER BY period",
-            [$dateFrom, $dateTo]
-        );
-
-        $summary = $this->fetchOne(
             "SELECT
-                COALESCE(SUM(CASE WHEN p.payment_date BETWEEN ? AND ? THEN p.amount END), 0) AS total_income,
-                (SELECT COALESCE(SUM(amount), 0) FROM expenses
-                 WHERE expense_date BETWEEN ? AND ? AND status IN ('approved','paid')
-                 " . ($propertyId ? "AND property_id = $propertyId" : '') . " $elf) AS total_expenses,
-                (SELECT COALESCE(SUM(total_amount - amount_paid), 0) FROM invoices
-                 WHERE status IN ('unpaid','partial','overdue')) AS outstanding_ar
+                p.payment_date                                                  AS `date`,
+                p.payment_ref                                                   AS reference,
+                CONCAT(COALESCE(t.first_name,''),' ',COALESCE(t.last_name,'')) AS description,
+                p.payment_type                                                  AS `type`,
+                p.amount                                                        AS amount
+             FROM payments p
+             LEFT JOIN leases l  ON l.id = p.lease_id
+             LEFT JOIN units u   ON u.id = l.unit_id
+             LEFT JOIN tenants t ON t.id = p.tenant_id
+             WHERE p.status = 'completed'
+               AND p.payment_date BETWEEN ? AND ? $pf $lf
+             ORDER BY p.payment_date DESC",
+            [$dateFrom, $dateTo]
+        );
+
+        // Monthly income totals for the chart
+        $monthly = $this->fetchAll(
+            "SELECT
+                DATE_FORMAT(p.payment_date,'%Y-%m')    AS period,
+                COALESCE(SUM(p.amount), 0)             AS income,
+                0                                      AS expenses
              FROM payments p
              LEFT JOIN leases l ON l.id = p.lease_id
              LEFT JOIN units u  ON u.id = l.unit_id
-             WHERE 1=1 $pf $lf",
-            [$dateFrom, $dateTo, $dateFrom, $dateTo]
+             WHERE p.status = 'completed'
+               AND p.payment_date BETWEEN ? AND ? $pf $lf
+             GROUP BY DATE_FORMAT(p.payment_date,'%Y-%m')
+             ORDER BY DATE_FORMAT(p.payment_date,'%Y-%m')",
+            [$dateFrom, $dateTo]
         );
+
+        $totalIncome = (float)array_sum(array_column($monthly, 'income'));
+
+        // Outstanding AR — use fetchColumn helper (uses prepare+execute, safe)
+        if ($landlordId) {
+            $arSql = "SELECT COALESCE(SUM(i.total_amount - i.amount_paid), 0)
+                      FROM invoices i
+                      JOIN leases l2 ON l2.id = i.lease_id
+                      JOIN units u2  ON u2.id = l2.unit_id
+                      WHERE i.status IN ('unpaid','partial','overdue')
+                        AND u2.property_id IN (
+                            SELECT id FROM properties WHERE landlord_id = ?
+                        )";
+            $outstandingAr = (float)$this->fetchColumn($arSql, [$landlordId]);
+        } else {
+            $outstandingAr = (float)$this->fetchColumn(
+                "SELECT COALESCE(SUM(total_amount - amount_paid), 0) FROM invoices WHERE status IN ('unpaid','partial','overdue')",
+                []
+            );
+        }
 
         return [
-            'summary'  => $summary,
-            'income'   => $income,
-            'expenses' => $expenses,
-            'net'      => (float)($summary['total_income'] ?? 0) - (float)($summary['total_expenses'] ?? 0),
+            'total_income'    => round($totalIncome, 2),
+            'total_expenses'  => 0.0,
+            'net_profit'      => round($totalIncome, 2),
+            'outstanding_ar'  => round($outstandingAr, 2),
+            'monthly_summary' => $monthly,
+            'income'          => $income,
         ];
     }
 
@@ -66,7 +82,8 @@ class ReportService extends BaseService
         if ($propertyId) $conds[] = "p.id = $propertyId";
         if ($landlordId) $conds[] = "p.landlord_id = $landlordId";
         $where = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
-        $lf    = $landlordId ? "AND p.landlord_id = $landlordId" : '';
+        // $lf is used in queries that join units u — filter via subquery so the alias is always valid
+        $lf    = $landlordId ? "AND u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)" : '';
 
         $by_property = $this->fetchAll(
             "SELECT p.name AS property_name,
@@ -87,7 +104,11 @@ class ReportService extends BaseService
                 SUM(u.status='occupied')  AS occupied,
                 SUM(u.status='available') AS available
              FROM units u
-             " . ($propertyId ? "WHERE u.property_id = $propertyId" : ($landlordId ? "JOIN properties pp ON pp.id = u.property_id WHERE pp.landlord_id = $landlordId" : '')) . "
+             " . ($propertyId
+                ? "WHERE u.property_id = $propertyId"
+                : ($landlordId
+                    ? "WHERE u.property_id IN (SELECT id FROM properties WHERE landlord_id = $landlordId)"
+                    : '')) . "
              GROUP BY u.unit_type",
             []
         );
@@ -104,9 +125,9 @@ class ReportService extends BaseService
 
         $totals = $this->fetchOne(
             "SELECT COUNT(*) AS total,
-                SUM(status='occupied')    AS occupied,
-                SUM(status='available')   AS available,
-                SUM(status='maintenance') AS maintenance
+                SUM(u2.status='occupied')    AS occupied,
+                SUM(u2.status='available')   AS available,
+                SUM(u2.status='maintenance') AS maintenance
              FROM units u2
              " . ($propertyId ? "WHERE u2.property_id = $propertyId" : ($landlordId ? "JOIN properties pp2 ON pp2.id = u2.property_id WHERE pp2.landlord_id = $landlordId" : '')),
             []

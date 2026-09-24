@@ -110,6 +110,63 @@ function registerLandlordRoutes(Router $router, PDO $db): void
         ]);
     });
 
+    // ── Landlord Income Statement ─────────────────────────────
+    // Returns payments received for the landlord's properties within a date range,
+    // with commission deductions calculated from their commission_rate.
+    $router->get('landlord/statement', function () use ($db) {
+        ApiAuth::requireScope($db, 'read:financials');
+        $lid = ApiAuth::landlordId($db);
+        if (!$lid) ApiResponse::forbidden('Landlord access only.');
+
+        $from = Router::strParam('date_from', date('Y-01-01'));
+        $to   = Router::strParam('date_to',   date('Y-m-d'));
+
+        $commStmt = $db->prepare("SELECT commission_rate FROM landlords WHERE id = ?");
+        $commStmt->execute([$lid]);
+        $commissionRate = (float)($commStmt->fetchColumn() ?? 0);
+
+        $stmt = $db->prepare(
+            "SELECT
+                p.payment_date  AS date,
+                CONCAT(COALESCE(t.first_name,''),' ',COALESCE(t.last_name,''),' — ',u.unit_number) AS description,
+                p.payment_type  AS type,
+                p.amount,
+                u.unit_number
+             FROM payments p
+             JOIN leases l       ON l.id  = p.lease_id
+             JOIN units u        ON u.id  = l.unit_id
+             JOIN properties pr  ON pr.id = u.property_id AND pr.landlord_id = ?
+             LEFT JOIN tenants t ON t.id  = p.tenant_id
+             WHERE p.status = 'completed'
+               AND p.payment_date BETWEEN ? AND ?
+             ORDER BY p.payment_date DESC"
+        );
+        $stmt->execute([$lid, $from, $to]);
+        $rows = $stmt->fetchAll();
+
+        $totalIncome     = (float)array_sum(array_column($rows, 'amount'));
+        $totalDeductions = round($totalIncome * $commissionRate / 100, 2);
+        $netPayable      = round($totalIncome - $totalDeductions, 2);
+
+        $transactions = array_map(fn($r) => [
+            'date'        => $r['date'],
+            'description' => trim($r['description']),
+            'type'        => 'credit',
+            'amount'      => (float)$r['amount'],
+            'unit_number' => $r['unit_number'],
+        ], $rows);
+
+        ApiResponse::ok([
+            'total_income'     => round($totalIncome, 2),
+            'total_deductions' => $totalDeductions,
+            'net_payable'      => $netPayable,
+            'commission_rate'  => $commissionRate,
+            'date_from'        => $from,
+            'date_to'          => $to,
+            'transactions'     => $transactions,
+        ]);
+    });
+
     // ── Create ────────────────────────────────────────────────
     $router->post('landlords', function () use ($db) {
         ApiAuth::requireRole($db, 'admin', 'manager');
