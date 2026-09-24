@@ -396,7 +396,58 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
              FROM invoice_items WHERE invoice_id = ? ORDER BY id"
         );
         $is->execute([(int)$id]);
-        $inv['items'] = $is->fetchAll();
+        $items = $is->fetchAll();
+
+        // Cast stored numeric columns so JS receives numbers, not strings
+        foreach ($items as &$it) {
+            $it['quantity']   = $it['quantity']   !== null ? (float)$it['quantity']   : 1;
+            $it['unit_price'] = $it['unit_price'] !== null ? (float)$it['unit_price'] : null;
+            $it['subtotal']   = $it['subtotal']   !== null ? (float)$it['subtotal']   : null;
+        }
+        unset($it);
+
+        // For old invoices that predate invoice_items, synthesize line items
+        // from the rent_amount / utility_amount stored on the invoice itself.
+        if (empty($items)) {
+            $rentAmt    = (float)($inv['rent_amount']    ?? 0);
+            $utilityAmt = (float)($inv['utility_amount'] ?? 0);
+            $unitLabel  = !empty($inv['unit_number']) ? ' — Unit ' . $inv['unit_number'] : '';
+            if ($rentAmt > 0) {
+                $items[] = [
+                    'id'          => 0,
+                    'description' => 'Monthly Rent' . $unitLabel,
+                    'quantity'    => 1,
+                    'unit_price'  => $rentAmt,
+                    'subtotal'    => $rentAmt,
+                    'item_type'   => 'rent',
+                ];
+            }
+            if ($utilityAmt > 0) {
+                $items[] = [
+                    'id'          => 0,
+                    'description' => 'Utilities & Fees',
+                    'quantity'    => 1,
+                    'unit_price'  => $utilityAmt,
+                    'subtotal'    => $utilityAmt,
+                    'item_type'   => 'utility',
+                ];
+            }
+            if (empty($items)) {
+                // absolute fallback — invoice has no stored breakdown at all
+                $items[] = [
+                    'id'          => 0,
+                    'description' => 'Monthly Rent' . $unitLabel,
+                    'quantity'    => 1,
+                    'unit_price'  => (float)($inv['total_amount'] ?? 0),
+                    'subtotal'    => (float)($inv['total_amount'] ?? 0),
+                    'item_type'   => 'rent',
+                ];
+            }
+        }
+
+        $inv['items']    = $items;
+        // Compute subtotal as sum of line items (pre-tax, pre-discount)
+        $inv['subtotal'] = (float)array_sum(array_column($items, 'subtotal'));
 
         ApiResponse::ok($inv);
     });
