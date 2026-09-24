@@ -12,6 +12,141 @@
  * GET    /api/v1/tokens                 list all tokens (admin)
  * DELETE /api/v1/tokens/{id}            revoke any token (admin)
  */
+
+function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink): string
+{
+    $roleLabel = ucfirst($role);
+    $year      = date('Y');
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr>
+          <td style="background:#1a56db;padding:32px 40px;">
+            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">Welcome to RUMS</h1>
+            <p style="margin:8px 0 0;color:#bfdbfe;font-size:14px;">Rental & Unit Management System</p>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:40px;">
+            <p style="margin:0 0 16px;font-size:16px;color:#111827;">Hi <strong>{$name}</strong>,</p>
+            <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">
+              Your RUMS account has been created. Below are your account details:
+            </p>
+            <!-- Account details box -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin:0 0 24px;">
+              <tr>
+                <td style="padding:16px 20px;">
+                  <table width="100%" cellpadding="4" cellspacing="0">
+                    <tr>
+                      <td style="font-size:13px;color:#6b7280;width:100px;">Email</td>
+                      <td style="font-size:13px;color:#111827;font-weight:600;">{$email}</td>
+                    </tr>
+                    <tr>
+                      <td style="font-size:13px;color:#6b7280;">Role</td>
+                      <td style="font-size:13px;color:#111827;font-weight:600;">{$roleLabel}</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6;">
+              To activate your account and set your password, click the button below.
+              This link expires in <strong>72 hours</strong>.
+            </p>
+            <!-- CTA button -->
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+              <tr>
+                <td style="background:#1a56db;border-radius:6px;">
+                  <a href="{$setupLink}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">
+                    Set Up My Password
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">
+              If the button above doesn't work, copy and paste this link into your browser:
+            </p>
+            <p style="margin:0 0 32px;font-size:12px;color:#1a56db;word-break:break-all;">{$setupLink}</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 24px;">
+            <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+              If you did not expect this email, you can safely ignore it. Your account will remain inactive until the link is used.
+            </p>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; {$year} RUMS. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+HTML;
+}
+
+function buildPasswordResetEmail(string $name, string $resetLink): string
+{
+    $year = date('Y');
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:#1a56db;padding:32px 40px;">
+            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">Password Reset</h1>
+            <p style="margin:8px 0 0;color:#bfdbfe;font-size:14px;">Rental & Unit Management System</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px;">
+            <p style="margin:0 0 16px;font-size:16px;color:#111827;">Hi <strong>{$name}</strong>,</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6;">
+              We received a request to reset your RUMS password. Click the button below to choose a new password.
+              This link expires in <strong>1 hour</strong>.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+              <tr>
+                <td style="background:#1a56db;border-radius:6px;">
+                  <a href="{$resetLink}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">
+                    Reset My Password
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Or copy this link:</p>
+            <p style="margin:0 0 32px;font-size:12px;color:#1a56db;word-break:break-all;">{$resetLink}</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 24px;">
+            <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+              If you didn't request a password reset, you can safely ignore this email.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; {$year} RUMS. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+HTML;
+}
 function registerUserRoutes(Router $router, PDO $db): void
 {
     // ── Users ─────────────────────────────────────────────────
@@ -119,6 +254,28 @@ function registerUserRoutes(Router $router, PDO $db): void
         } catch (Throwable $e) {
             $db->rollBack();
             ApiResponse::serverError('Failed to create user.', $e);
+        }
+
+        // Generate account setup token and send welcome email
+        try {
+            $setupToken  = bin2hex(random_bytes(32));
+            $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
+            $db->prepare(
+                "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?"
+            )->execute([$setupToken, $tokenExpiry, $userId]);
+
+            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+            $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
+
+            require_once __DIR__ . '/../services/NotificationService.php';
+            $notif = new NotificationService($db);
+            $notif->sendEmail(
+                $body['email'],
+                'Welcome to RUMS — Set Up Your Password',
+                buildWelcomeEmail($body['name'], $body['role'], $body['email'], $setupLink)
+            );
+        } catch (Throwable $ignored) {
+            // Email failure must not block account creation
         }
 
         ApiResponse::created($responseData, 'User created.');

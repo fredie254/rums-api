@@ -2,11 +2,13 @@
 /**
  * Auth endpoints — no Bearer token required for login
  *
- * POST   /api/v1/auth/login        exchange credentials for a token
- * POST   /api/v1/auth/logout       revoke current token
- * GET    /api/v1/auth/me           current user profile + token info
- * POST   /api/v1/auth/token        issue a new named token (requires auth)
- * DELETE /api/v1/auth/token/{id}   revoke a token by id (requires auth)
+ * POST   /api/v1/auth/login             exchange credentials for a token
+ * POST   /api/v1/auth/logout            revoke current token
+ * GET    /api/v1/auth/me                current user profile + token info
+ * POST   /api/v1/auth/forgot-password   send a password reset link by email
+ * POST   /api/v1/auth/setup-password    consume reset/setup token and set password
+ * POST   /api/v1/auth/token             issue a new named token (requires auth)
+ * DELETE /api/v1/auth/token/{id}        revoke a token by id (requires auth)
  */
 function registerAuthRoutes(Router $router, PDO $db): void
 {
@@ -193,6 +195,66 @@ function registerAuthRoutes(Router $router, PDO $db): void
             'scopes'     => $rawScopes,
             'expires_in' => $ttl > 0 ? $ttl * 86400 : null,
         ], 'Token issued.');
+    });
+
+    // POST /auth/forgot-password — request a password reset link ─
+    $router->post('auth/forgot-password', function () use ($db) {
+        $body  = Router::body();
+        $email = trim($body['email'] ?? '');
+        if (!$email) ApiResponse::badRequest('email is required.');
+
+        $stmt = $db->prepare("SELECT id, name FROM users WHERE email = ? AND status = 'active' LIMIT 1");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+
+        // Always return 200 to avoid email enumeration
+        if ($user) {
+            $token   = bin2hex(random_bytes(32));
+            $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
+            $db->prepare(
+                "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?"
+            )->execute([$token, $expires, $user['id']]);
+
+            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+            $resetLink   = $frontendUrl . '/reset-password?token=' . $token;
+
+            try {
+                require_once __DIR__ . '/../services/NotificationService.php';
+                $notif = new NotificationService($db);
+                $notif->sendEmail(
+                    $email,
+                    'RUMS — Password Reset Request',
+                    buildPasswordResetEmail($user['name'], $resetLink)
+                );
+            } catch (Throwable $ignored) {}
+        }
+
+        ApiResponse::ok(null, 'If that email is registered, a reset link has been sent.');
+    });
+
+    // POST /auth/setup-password — consume token and set password ─
+    $router->post('auth/setup-password', function () use ($db) {
+        $body     = Router::body();
+        $token    = trim($body['token']    ?? '');
+        $password = $body['password'] ?? '';
+
+        if (!$token || !$password) ApiResponse::badRequest('token and password are required.');
+        if (strlen($password) < 8)  ApiResponse::unprocessable('Password must be at least 8 characters.');
+
+        $stmt = $db->prepare(
+            "SELECT id FROM users WHERE password_reset_token = ? AND password_reset_expires > NOW() LIMIT 1"
+        );
+        $stmt->execute([$token]);
+        $user = $stmt->fetch();
+
+        if (!$user) ApiResponse::badRequest('Invalid or expired setup link. Please contact your administrator.');
+
+        $db->prepare(
+            "UPDATE users SET password = ?, status = 'active',
+             password_reset_token = NULL, password_reset_expires = NULL WHERE id = ?"
+        )->execute([password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]), $user['id']]);
+
+        ApiResponse::ok(null, 'Password set successfully. You can now log in.');
     });
 
     // DELETE /auth/token/{id} — revoke a token ────────────────

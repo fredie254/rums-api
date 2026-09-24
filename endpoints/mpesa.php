@@ -638,21 +638,26 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
 
     // ── M-Pesa Config CRUD (super admin / admin only) ─────────────────────────
 
-    // List all configs with landlord details
+    // List all configs with landlord + property details
     $router->get('mpesa/configs', function () use ($db) {
         ApiAuth::requireRole($db, 'admin', 'super_admin');
 
         $rows = $db->query(
             "SELECT mc.*,
-                    u.name AS landlord_name,
-                    u.email AS landlord_email
+                    u.name  AS landlord_name,
+                    u.email AS landlord_email,
+                    u.phone AS landlord_phone,
+                    p.name  AS property_name,
+                    p.address_city   AS property_city,
+                    p.address_county AS property_county
              FROM mpesa_configs mc
-             JOIN landlords l ON l.id = mc.landlord_id
-             JOIN users u ON u.id = l.user_id
-             ORDER BY u.name"
+             JOIN landlords l   ON l.id = mc.landlord_id
+             JOIN users u       ON u.id = l.user_id
+             LEFT JOIN properties p ON p.id = mc.property_id
+             ORDER BY u.name, p.name"
         )->fetchAll();
 
-        // Mask credentials before returning — never expose keys in list view
+        // Mask credentials — never expose keys in list view
         foreach ($rows as &$row) {
             $row['consumer_key']    = str_repeat('*', max(0, strlen($row['consumer_key']) - 4))    . substr($row['consumer_key'],    -4);
             $row['consumer_secret'] = str_repeat('*', max(0, strlen($row['consumer_secret']) - 4)) . substr($row['consumer_secret'], -4);
@@ -663,30 +668,49 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         ApiResponse::ok($rows);
     });
 
-    // List landlords without a config (must be before /{id} so the literal path wins)
-    $router->get('mpesa/configs/unregistered-landlords', function () use ($db) {
+    // List all landlords (for config form dropdown) — must be before /{id}
+    $router->get('mpesa/configs/landlords', function () use ($db) {
         ApiAuth::requireRole($db, 'admin', 'super_admin');
         $rows = $db->query(
             "SELECT l.id, u.name, u.email
              FROM landlords l
              JOIN users u ON u.id = l.user_id
-             WHERE l.id NOT IN (SELECT landlord_id FROM mpesa_configs)
              ORDER BY u.name"
         )->fetchAll();
         ApiResponse::ok($rows);
     });
 
-    // Get single config (credentials unmasked for editing)
+    // List properties for a landlord that do not yet have a config — must be before /{id}
+    $router->get('mpesa/configs/available-properties', function () use ($db) {
+        ApiAuth::requireRole($db, 'admin', 'super_admin');
+        $landlordId = (int)(Router::strParam('landlord_id') ?? 0);
+        if (!$landlordId) ApiResponse::badRequest('landlord_id is required.');
+        $stmt = $db->prepare(
+            "SELECT p.id, p.name, p.address_city, p.address_county
+             FROM properties p
+             WHERE p.landlord_id = ?
+               AND p.status = 'active'
+               AND p.id NOT IN (SELECT property_id FROM mpesa_configs WHERE property_id IS NOT NULL)
+             ORDER BY p.name"
+        );
+        $stmt->execute([$landlordId]);
+        ApiResponse::ok($stmt->fetchAll());
+    });
+
+    // Get single config with landlord + property (credentials unmasked for editing)
     $router->get('mpesa/configs/{id}', function (int $id) use ($db) {
         ApiAuth::requireRole($db, 'admin', 'super_admin');
 
         $stmt = $db->prepare(
             "SELECT mc.*,
-                    u.name AS landlord_name,
-                    u.email AS landlord_email
+                    u.name  AS landlord_name,
+                    u.email AS landlord_email,
+                    p.name  AS property_name,
+                    p.address_city AS property_city
              FROM mpesa_configs mc
-             JOIN landlords l ON l.id = mc.landlord_id
-             JOIN users u ON u.id = l.user_id
+             JOIN landlords l   ON l.id = mc.landlord_id
+             JOIN users u       ON u.id = l.user_id
+             LEFT JOIN properties p ON p.id = mc.property_id
              WHERE mc.id = ?"
         );
         $stmt->execute([$id]);
@@ -700,12 +724,13 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         ApiAuth::requireRole($db, 'admin', 'super_admin');
 
         $b = Router::body();
-        $required = ['landlord_id', 'shortcode', 'consumer_key', 'consumer_secret'];
+        $required = ['landlord_id', 'property_id', 'shortcode', 'consumer_key', 'consumer_secret', 'passkey'];
         foreach ($required as $f) {
             if (empty($b[$f])) ApiResponse::unprocessable("$f is required.");
         }
 
         $landlordId    = (int)$b['landlord_id'];
+        $propertyId    = (int)$b['property_id'];
         $shortcode     = trim($b['shortcode']);
         $shortcodeType = in_array($b['shortcode_type'] ?? '', ['paybill', 'till']) ? $b['shortcode_type'] : 'paybill';
         $environment   = ($b['environment'] ?? 'production') === 'sandbox' ? 'sandbox' : 'production';
@@ -715,21 +740,26 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         $lStmt->execute([$landlordId]);
         if (!$lStmt->fetchColumn()) ApiResponse::notFound('Landlord not found.');
 
+        // Verify property belongs to this landlord
+        $pStmt = $db->prepare("SELECT id FROM properties WHERE id = ? AND landlord_id = ?");
+        $pStmt->execute([$propertyId, $landlordId]);
+        if (!$pStmt->fetchColumn()) ApiResponse::unprocessable('Property not found or does not belong to this landlord.');
+
         try {
             $db->prepare(
                 "INSERT INTO mpesa_configs
-                    (landlord_id, shortcode, shortcode_type, consumer_key, consumer_secret, environment, is_active, created_by)
-                 VALUES (?,?,?,?,?,?,1,?)"
+                    (landlord_id, property_id, shortcode, shortcode_type, consumer_key, consumer_secret, passkey, environment, is_active, created_by)
+                 VALUES (?,?,?,?,?,?,?,?,1,?)"
             )->execute([
-                $landlordId, $shortcode, $shortcodeType,
-                trim($b['consumer_key']), trim($b['consumer_secret']),
+                $landlordId, $propertyId, $shortcode, $shortcodeType,
+                trim($b['consumer_key']), trim($b['consumer_secret']), trim($b['passkey']),
                 $environment, ApiAuth::userId(),
             ]);
             $newId = (int)$db->lastInsertId();
             ApiResponse::created(['id' => $newId], 'M-Pesa config created. Use Register URLs to activate C2B.');
         } catch (PDOException $e) {
             if (str_contains($e->getMessage(), 'Duplicate')) {
-                ApiResponse::unprocessable('A config already exists for this landlord or shortcode.');
+                ApiResponse::unprocessable('A config already exists for this property or shortcode.');
             }
             throw $e;
         }
@@ -746,7 +776,7 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
 
         $fields = [];
         $params = [];
-        $allowed = ['shortcode', 'shortcode_type', 'consumer_key', 'consumer_secret', 'environment', 'is_active', 'notes'];
+        $allowed = ['property_id', 'shortcode', 'shortcode_type', 'consumer_key', 'consumer_secret', 'passkey', 'environment', 'is_active', 'notes'];
         foreach ($allowed as $f) {
             if (array_key_exists($f, $b)) {
                 $fields[] = "$f = ?";
@@ -755,8 +785,8 @@ function registerMpesaProtectedRoutes(Router $router, PDO $db): void
         }
         if (empty($fields)) ApiResponse::unprocessable('No updatable fields provided.');
 
-        // URL registration needs to be redone if shortcode/environment changes
-        if (array_key_exists('shortcode', $b) || array_key_exists('environment', $b)) {
+        // URL registration needs to be redone if shortcode/environment/property changes
+        if (array_key_exists('shortcode', $b) || array_key_exists('environment', $b) || array_key_exists('property_id', $b)) {
             $fields[] = 'urls_registered = 0';
             $fields[] = 'urls_registered_at = NULL';
         }

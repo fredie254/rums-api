@@ -117,6 +117,71 @@ SET `id_number_hash` = SHA2(LOWER(TRIM(`id_number`)), 256)
 WHERE `id_number` IS NOT NULL
   AND `id_number` NOT LIKE 'enc1:%';
 
+-- ============================================================
+-- Migration: Add password reset / account setup token to users
+-- ============================================================
+DROP PROCEDURE IF EXISTS _rums_migrate_pwreset;
+DELIMITER $$
+CREATE PROCEDURE _rums_migrate_pwreset()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'password_reset_token'
+    ) THEN
+        ALTER TABLE `users`
+            ADD COLUMN `password_reset_token`   CHAR(64)  DEFAULT NULL AFTER `status`,
+            ADD COLUMN `password_reset_expires`  DATETIME  DEFAULT NULL AFTER `password_reset_token`;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND INDEX_NAME   = 'idx_users_reset_token'
+    ) THEN
+        ALTER TABLE `users` ADD INDEX `idx_users_reset_token` (`password_reset_token`);
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_migrate_pwreset();
+DROP PROCEDURE IF EXISTS _rums_migrate_pwreset;
+
+-- ============================================================
+-- Migration: Tie mpesa_configs to properties (1 config per property)
+-- ============================================================
+DROP PROCEDURE IF EXISTS _rums_migrate_mpesa_property;
+DELIMITER $$
+CREATE PROCEDURE _rums_migrate_mpesa_property()
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mpesa_configs' AND INDEX_NAME = 'uk_landlord'
+    ) THEN
+        ALTER TABLE `mpesa_configs` DROP INDEX `uk_landlord`;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mpesa_configs' AND COLUMN_NAME = 'property_id'
+    ) THEN
+        ALTER TABLE `mpesa_configs`
+            ADD COLUMN `property_id` INT UNSIGNED NULL AFTER `landlord_id`,
+            ADD CONSTRAINT `fk_mc_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mpesa_configs' AND INDEX_NAME = 'uk_mc_property'
+    ) THEN
+        ALTER TABLE `mpesa_configs` ADD UNIQUE KEY `uk_mc_property` (`property_id`);
+    END IF;
+END$$
+DELIMITER ;
+CALL _rums_migrate_mpesa_property();
+DROP PROCEDURE IF EXISTS _rums_migrate_mpesa_property;
+
 -- ── Tenants table fixes ─────────────────────────────────────────
 
 DROP PROCEDURE IF EXISTS _rums_tenant_migrate;
