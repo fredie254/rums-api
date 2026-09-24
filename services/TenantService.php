@@ -220,10 +220,10 @@ class TenantService extends BaseService
 
         $this->db->beginTransaction();
         try {
-            $defaultPassword = 'Rums@1234.';
+            $defaultPassword = 'Tenant@1234';
 
             $userId = $this->insert(
-                "INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, 'tenant', 'active')",
+                "INSERT INTO users (name, email, password, role, status, must_change_password) VALUES (?, ?, ?, 'tenant', 'active', 1)",
                 [
                     trim($data['first_name'] . ' ' . $data['last_name']),
                     $email,

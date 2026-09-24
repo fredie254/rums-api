@@ -3,7 +3,7 @@
  * Tenants endpoints
  *
  * GET    /api/v1/tenants                     list (paginated, filterable)
- * POST   /api/v1/tenants                     create
+ * POST   /api/v1/tenants                     create + optional unit assignment
  * GET    /api/v1/tenants/{id}                single + lease + payment summary
  * PUT    /api/v1/tenants/{id}                full update
  * PATCH  /api/v1/tenants/{id}                partial update
@@ -12,6 +12,97 @@
  * GET    /api/v1/tenants/{id}/payments       payments for tenant
  * GET    /api/v1/tenants/{id}/maintenance    maintenance requests for tenant
  */
+
+// Shared welcome email builder — also defined in users.php (loaded later); guard prevents redeclaration.
+if (!function_exists('buildWelcomeEmail')):
+function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink, string $tempPassword, string $loginUrl): string
+{
+    $year = date('Y');
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Welcome to RUMS</title>
+</head>
+<body style="margin:0;padding:0;background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7;padding:48px 16px;">
+<tr><td align="center">
+<table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:8px;border:1px solid #e2e2e2;">
+
+  <tr><td style="padding:40px 48px 0;text-align:center;">
+    <span style="font-size:20px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
+  </td></tr>
+
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111111;">Welcome, {$name}</p>
+    <p style="margin:0;font-size:14px;line-height:1.7;color:#666666;">
+      Your account is ready. Use the credentials below to log in,<br>
+      then set a permanent password when prompted.
+    </p>
+  </td></tr>
+
+  <!-- Credentials box -->
+  <tr><td style="padding:24px 48px 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8fa;border-radius:6px;border:1px solid #e8e8e8;">
+      <tr>
+        <td style="padding:14px 20px;border-bottom:1px solid #e8e8e8;">
+          <span style="font-size:11px;color:#999999;text-transform:uppercase;letter-spacing:0.06em;">Email</span><br>
+          <span style="font-size:14px;color:#111111;font-weight:600;">{$email}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:14px 20px;border-bottom:1px solid #e8e8e8;">
+          <span style="font-size:11px;color:#999999;text-transform:uppercase;letter-spacing:0.06em;">Temporary Password</span><br>
+          <span style="font-size:16px;color:#1a56db;font-weight:700;font-family:'Courier New',monospace;letter-spacing:1px;">{$tempPassword}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:14px 20px;">
+          <span style="font-size:11px;color:#999999;text-transform:uppercase;letter-spacing:0.06em;">Role</span><br>
+          <span style="font-size:14px;color:#111111;font-weight:600;text-transform:capitalize;">{$role}</span>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- Buttons -->
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <table cellpadding="0" cellspacing="0" style="margin:0 auto 12px;">
+      <tr>
+        <td style="background:#1a56db;border-radius:6px;">
+          <a href="{$loginUrl}" style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">Log In to RUMS</a>
+        </td>
+      </tr>
+    </table>
+    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="border:1px solid #d0d5dd;border-radius:6px;">
+          <a href="{$setupLink}" style="display:inline-block;padding:12px 32px;color:#374151;font-size:14px;font-weight:600;text-decoration:none;">Set Up Password</a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:12px 0 0;font-size:12px;color:#aaaaaa;">Setup link expires in 72 hours.</p>
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="padding:32px 48px;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #eeeeee;padding-top:20px;font-size:12px;color:#bbbbbb;text-align:center;line-height:1.6;">
+      If you were not expecting this email, you can ignore it.
+      &nbsp;&middot;&nbsp; &copy; {$year} RUMS
+    </td></tr></table>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+HTML;
+}
+endif;
+
 function registerTenantRoutes(Router $router, PDO $db): void
 {
     $svc = new TenantService($db);
@@ -44,10 +135,118 @@ function registerTenantRoutes(Router $router, PDO $db): void
 
     $router->post('tenants', function () use ($svc, $db) {
         ApiAuth::requireScope($db, 'write:tenants');
-        $res = $svc->create(Router::body());
-        $res['success']
-            ? ApiResponse::created(['id' => $res['id']], $res['message'])
-            : ApiResponse::unprocessable($res['message'], $res['errors'] ?? []);
+        $body = Router::body();
+
+        // ── Create tenant + user account ──────────────────────
+        $res = $svc->create($body);
+        if (!$res['success']) {
+            ApiResponse::unprocessable($res['message'], $res['errors'] ?? []);
+        }
+
+        $tenantId     = (int)$res['id'];
+        $userId       = (int)$res['user_id'];
+        $responseData = ['id' => $tenantId, 'user_id' => $userId];
+        $emailSent    = false;
+        $emailError   = null;
+
+        // ── Generate setup token ──────────────────────────────
+        $setupToken = null;
+        try {
+            $setupToken  = bin2hex(random_bytes(32));
+            $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
+            $db->prepare(
+                "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?"
+            )->execute([$setupToken, $tokenExpiry, $userId]);
+        } catch (Throwable $e) {
+            error_log('[RUMS] Tenant setup token failed for user ' . $userId . ': ' . $e->getMessage());
+            $setupToken = null;
+        }
+
+        // ── Send welcome email ────────────────────────────────
+        if ($setupToken && !empty($body['email'])) {
+            try {
+                $display = $db->prepare(
+                    "SELECT setting_key, setting_value FROM settings
+                     WHERE setting_key IN ('company_name','mail_from_name','mail_from_email')"
+                );
+                $display->execute();
+                $cfg = array_column($display->fetchAll(), 'setting_value', 'setting_key');
+
+                $mailer = new MailService([
+                    'smtp_host'       => env('MAIL_HOST',       ''),
+                    'smtp_port'       => (int)env('MAIL_PORT',  465),
+                    'smtp_user'       => env('MAIL_USER',       ''),
+                    'smtp_pass'       => env('MAIL_PASS',       ''),
+                    'smtp_encryption' => env('MAIL_ENCRYPTION', 'ssl'),
+                    'from_name'       => env('MAIL_FROM_NAME',  $cfg['mail_from_name']  ?? ($cfg['company_name'] ?? 'RUMS')),
+                    'from_email'      => env('MAIL_FROM_EMAIL', $cfg['mail_from_email'] ?? env('MAIL_USER', '')),
+                ]);
+
+                $frontendUrl = rtrim(env('FRONTEND_URL', 'https://properties.vertexiot.co.ke'), '/');
+                $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
+                $loginUrl    = $frontendUrl . '/login';
+                $tenantName  = trim(($body['first_name'] ?? '') . ' ' . ($body['last_name'] ?? ''));
+
+                $result = $mailer->send(
+                    $body['email'],
+                    'Welcome to RUMS — Your Tenant Account',
+                    buildWelcomeEmail($tenantName, 'tenant', $body['email'], $setupLink, 'Tenant@1234', $loginUrl)
+                );
+
+                $emailSent  = $result['success'];
+                $emailError = $result['success'] ? null : ($result['error'] ?? 'Unknown mail error');
+                if (!$emailSent) {
+                    error_log('[RUMS] Tenant welcome email failed for user ' . $userId . ': ' . $emailError);
+                }
+            } catch (Throwable $e) {
+                $emailError = $e->getMessage();
+                error_log('[RUMS] Tenant welcome email exception for user ' . $userId . ': ' . $emailError);
+            }
+        }
+
+        // ── Create lease if a unit was assigned ───────────────
+        if (!empty($body['unit_id'])) {
+            try {
+                $leaseSvc  = new LeaseService($db);
+
+                // Fetch unit's rent_amount as fallback when monthly_rent not provided
+                if (empty($body['monthly_rent'])) {
+                    $unitRow = $db->prepare("SELECT rent_amount FROM units WHERE id = ?");
+                    $unitRow->execute([(int)$body['unit_id']]);
+                    $unitData = $unitRow->fetch();
+                    $body['monthly_rent'] = $unitData ? (float)$unitData['rent_amount'] : 0;
+                }
+
+                $startDate = $body['start_date'] ?? date('Y-m-d');
+                $endDate   = $body['end_date']   ?? date('Y-m-d', strtotime($startDate . ' +1 year'));
+
+                $leaseRes = $leaseSvc->create([
+                    'unit_id'         => (int)$body['unit_id'],
+                    'tenant_id'       => $tenantId,
+                    'start_date'      => $startDate,
+                    'end_date'        => $endDate,
+                    'monthly_rent'    => (float)$body['monthly_rent'],
+                    'initial_reading' => (float)($body['initial_reading'] ?? 0),
+                ]);
+
+                if ($leaseRes['success']) {
+                    $responseData['lease_id']     = $leaseRes['id'];
+                    $responseData['lease_number'] = $leaseRes['lease_number'];
+                } else {
+                    error_log('[RUMS] Auto-lease failed for tenant ' . $tenantId . ': ' . $leaseRes['message']);
+                    $responseData['lease_error'] = $leaseRes['message'];
+                }
+            } catch (Throwable $e) {
+                error_log('[RUMS] Auto-lease exception for tenant ' . $tenantId . ': ' . $e->getMessage());
+                $responseData['lease_error'] = $e->getMessage();
+            }
+        }
+
+        $responseData['email_sent'] = $emailSent;
+        $msg = $emailSent ? 'Tenant created and welcome email sent.' : 'Tenant created.';
+        if (!empty($responseData['lease_id']))  $msg .= ' Unit assigned.';
+        if (!empty($responseData['lease_error'])) $msg .= ' Unit assignment failed: ' . $responseData['lease_error'];
+        ApiResponse::created($responseData, $msg);
     });
 
     $router->get('tenants/{id}', function (string $id) use ($svc, $db, $ownTenant) {

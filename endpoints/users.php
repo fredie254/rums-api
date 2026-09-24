@@ -13,6 +13,7 @@
  * DELETE /api/v1/tokens/{id}            revoke any token (admin)
  */
 
+if (!function_exists('buildWelcomeEmail')):
 function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink, string $tempPassword, string $loginUrl): string
 {
     $year = date('Y');
@@ -93,6 +94,7 @@ function buildWelcomeEmail(string $name, string $role, string $email, string $se
 </html>
 HTML;
 }
+endif;
 
 function buildPasswordResetEmail(string $name, string $resetLink): string
 {
