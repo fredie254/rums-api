@@ -20,7 +20,7 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
                 pr.name AS property_name, pr.id AS property_id,
                 CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
                 rec.name AS recorded_by_name,
-                (wr.id = (SELECT MAX(id2) FROM water_readings wr2 WHERE wr2.unit_id = wr.unit_id)) AS is_current,
+                (wr.id = (SELECT MAX(wr2.id) FROM water_readings wr2 WHERE wr2.unit_id = wr.unit_id)) AS is_current,
                 (SELECT prev.reading_value FROM water_readings prev
                  WHERE prev.unit_id = wr.unit_id
                    AND (prev.reading_date < wr.reading_date
@@ -111,7 +111,7 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
                     u.unit_number, pr.name AS property_name, pr.id AS property_id,
                     CONCAT(t.first_name,' ',t.last_name) AS tenant_name,
                     rec.name AS recorded_by_name,
-                    (wr.id = (SELECT MAX(id2) FROM water_readings wr2 WHERE wr2.unit_id = wr.unit_id)) AS is_current,
+                    (wr.id = (SELECT MAX(wr2.id) FROM water_readings wr2 WHERE wr2.unit_id = wr.unit_id)) AS is_current,
                     (SELECT prev.reading_value FROM water_readings prev
                      WHERE prev.unit_id = wr.unit_id
                        AND (prev.reading_date < wr.reading_date
