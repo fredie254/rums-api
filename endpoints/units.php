@@ -98,7 +98,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
         }
 
         $allowed = array_intersect_key($body, array_flip([
-            'property_id','unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
+            'property_id','unit_number','meter_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
             'water_rate','garbage_fee','service_fee',
@@ -163,7 +163,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
         if (!$check->fetch()) ApiResponse::notFound('Unit not found.');
 
         $allowed = array_intersect_key($body, array_flip([
-            'unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
+            'unit_number','meter_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
             'water_rate','garbage_fee','service_fee',
@@ -184,7 +184,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
         if ($lid) $ownUnit((int)$id, $lid);
         $body    = Router::body();
         $allowed = array_intersect_key($body, array_flip([
-            'unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
+            'unit_number','meter_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
             'water_rate','garbage_fee','service_fee',
