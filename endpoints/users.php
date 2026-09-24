@@ -291,7 +291,7 @@ function registerUserRoutes(Router $router, PDO $db): void
                     'from_email'      => env('MAIL_FROM_EMAIL', $cfg['mail_from_email'] ?? env('MAIL_USER', '')),
                 ]);
 
-                $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+                $frontendUrl = rtrim(env('FRONTEND_URL', 'https://properties.vertexiot.co.ke'), '/');
                 $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
                 $loginUrl    = $frontendUrl . '/login';
 
@@ -355,7 +355,7 @@ function registerUserRoutes(Router $router, PDO $db): void
                 'from_email'      => env('MAIL_FROM_EMAIL', $cfg['mail_from_email'] ?? env('MAIL_USER', '')),
             ]);
 
-            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+            $frontendUrl = rtrim(env('FRONTEND_URL', 'https://properties.vertexiot.co.ke'), '/');
             $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
             $loginUrl    = $frontendUrl . '/login';
 

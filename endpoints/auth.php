@@ -217,7 +217,7 @@ function registerAuthRoutes(Router $router, PDO $db): void
                 "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?"
             )->execute([$token, $expires, $user['id']]);
 
-            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+            $frontendUrl = rtrim(env('FRONTEND_URL', 'https://properties.vertexiot.co.ke'), '/');
             $resetLink   = $frontendUrl . '/setup-password?token=' . $token;
 
             try {
