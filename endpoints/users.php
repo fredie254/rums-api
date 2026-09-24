@@ -424,7 +424,6 @@ function registerUserRoutes(Router $router, PDO $db): void
             $db->prepare("UPDATE bank_statement_entries SET imported_by  = NULL WHERE imported_by  = ?")->execute([$targetId]);
             $db->prepare("UPDATE message_templates       SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
             $db->prepare("UPDATE broadcast_messages      SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
-            $db->prepare("UPDATE reports_scheduled       SET created_by  = NULL WHERE created_by   = ?")->execute([$targetId]);
             $db->prepare("UPDATE documents               SET uploaded_by = NULL WHERE uploaded_by  = ?")->execute([$targetId]);
 
             // Hard-delete tokens (CASCADE would handle this but being explicit)
