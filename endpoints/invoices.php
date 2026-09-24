@@ -480,6 +480,17 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         ApiResponse::ok(null, 'Invoice updated.');
     });
 
+    // ── Delete ───────────────────────────────────────────────
+    $router->delete('invoices/{id}', function (string $id) use ($db) {
+        ApiAuth::requireRole($db, 'admin', 'super_admin', 'manager', 'property_manager');
+        $stmt = $db->prepare("SELECT id FROM invoices WHERE id = ?");
+        $stmt->execute([(int)$id]);
+        if (!$stmt->fetch()) ApiResponse::notFound('Invoice not found.');
+        $db->prepare("DELETE FROM invoice_items WHERE invoice_id = ?")->execute([(int)$id]);
+        $db->prepare("DELETE FROM invoices WHERE id = ?")->execute([(int)$id]);
+        ApiResponse::ok(null, 'Invoice deleted.');
+    });
+
     // ── Void ─────────────────────────────────────────────────
     $router->post('invoices/{id}/void', function (string $id) use ($db) {
         ApiAuth::requireRole($db, 'admin', 'accountant');
