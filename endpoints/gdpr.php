@@ -58,7 +58,6 @@ function registerGdprRoutes(Router $router, PDO $db): void
 
     // ── Download export (one-time token in query string) ──────
     $router->get('gdpr/export/download', function () use ($db) {
-        ApiAuth::require($db);
         $token = $_GET['token'] ?? '';
 
         if (!$token) ApiResponse::badRequest('token parameter is required.');
@@ -67,13 +66,6 @@ function registerGdprRoutes(Router $router, PDO $db): void
         $userId = $svc->resolveExportToken($token);
 
         if (!$userId) ApiResponse::unauthorized('Invalid or expired export token.');
-
-        // Only allow downloading own data (or admin)
-        $requestingUser = ApiAuth::userId();
-        $role           = ApiAuth::userRole();
-        if ($userId !== $requestingUser && $role !== 'admin') {
-            ApiResponse::forbidden('You can only download your own data.');
-        }
 
         $data = $svc->exportUserData($userId);
 
