@@ -81,17 +81,6 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        $total = (int)$db->prepare(
-            "SELECT COUNT(*) FROM water_readings wr
-             JOIN units u ON u.id = wr.unit_id
-             JOIN properties pr ON pr.id = u.property_id $w"
-        )->execute($params) ? $db->query(
-            "SELECT COUNT(*) FROM water_readings wr
-             JOIN units u ON u.id = wr.unit_id
-             JOIN properties pr ON pr.id = u.property_id $w"
-        )->fetchColumn() : 0;
-
-        // Use a proper fetch
         $cntStmt = $db->prepare(
             "SELECT COUNT(*) FROM water_readings wr
              JOIN units u ON u.id = wr.unit_id
