@@ -15,8 +15,7 @@
 
 function buildWelcomeEmail(string $name, string $role, string $email, string $setupLink, string $tempPassword, string $loginUrl): string
 {
-    $roleLabel = ucfirst($role);
-    $year      = date('Y');
+    $year = date('Y');
     return <<<HTML
 <!DOCTYPE html>
 <html lang="en">
@@ -25,77 +24,67 @@ function buildWelcomeEmail(string $name, string $role, string $email, string $se
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Welcome to RUMS</title>
 </head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:48px 16px;">
+<body style="margin:0;padding:0;background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7;padding:48px 16px;">
 <tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:6px;border:1px solid #e4e4e4;">
+<table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:8px;border:1px solid #e2e2e2;">
 
-  <!-- Wordmark -->
-  <tr>
-    <td style="padding:36px 48px 0;">
-      <span style="font-size:18px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
-    </td>
-  </tr>
+  <tr><td style="padding:40px 48px 0;text-align:center;">
+    <span style="font-size:20px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
+  </td></tr>
 
-  <!-- Divider -->
-  <tr><td style="padding:20px 48px 0;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;"></td></tr></table></td></tr>
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111111;">Welcome, {$name}</p>
+    <p style="margin:0;font-size:14px;line-height:1.7;color:#666666;">
+      Your account is ready. Use the credentials below to log in,<br>
+      then set a permanent password when prompted.
+    </p>
+  </td></tr>
 
-  <!-- Body -->
-  <tr>
-    <td style="padding:32px 48px 0;">
-      <p style="margin:0 0 20px;font-size:15px;color:#111111;">Hi <strong>{$name}</strong>,</p>
-      <p style="margin:0 0 28px;font-size:14px;line-height:1.7;color:#555555;">
-        Your RUMS account has been created. Use the details below to log in.
-        You will be asked to set a new password on your first login.
-      </p>
+  <!-- Credentials box -->
+  <tr><td style="padding:24px 48px 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8fa;border-radius:6px;border:1px solid #e8e8e8;">
+      <tr>
+        <td style="padding:14px 20px;border-bottom:1px solid #e8e8e8;">
+          <span style="font-size:11px;color:#999999;text-transform:uppercase;letter-spacing:0.06em;">Email</span><br>
+          <span style="font-size:14px;color:#111111;font-weight:600;">{$email}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:14px 20px;">
+          <span style="font-size:11px;color:#999999;text-transform:uppercase;letter-spacing:0.06em;">Temporary Password</span><br>
+          <span style="font-size:16px;color:#1a56db;font-weight:700;font-family:'Courier New',monospace;letter-spacing:1px;">{$tempPassword}</span>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
 
-      <!-- Credentials -->
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
-        <tr>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;width:140px;">Login URL</td>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;"><a href="{$loginUrl}" style="color:#1a56db;text-decoration:none;">{$loginUrl}</a></td>
-        </tr>
-        <tr>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;">Email</td>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#111111;">{$email}</td>
-        </tr>
-        <tr>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888888;">Temporary Password</td>
-          <td style="padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;font-family:'Courier New',monospace;font-weight:700;color:#111111;letter-spacing:0.5px;">{$tempPassword}</td>
-        </tr>
-        <tr>
-          <td style="padding:9px 0;font-size:13px;color:#888888;">Role</td>
-          <td style="padding:9px 0;font-size:13px;color:#111111;">{$roleLabel}</td>
-        </tr>
-      </table>
-
-      <p style="margin:0 0 20px;font-size:13px;line-height:1.7;color:#555555;">
-        You can also set a permanent password now using the link below — it expires in 72 hours.
-      </p>
-
-      <!-- CTA -->
-      <table cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
-        <tr>
-          <td style="background:#1a56db;border-radius:5px;">
-            <a href="{$setupLink}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;">Set Up My Password</a>
-          </td>
-        </tr>
-      </table>
-
-      <p style="margin:0 0 4px;font-size:12px;color:#aaaaaa;">Or copy this link:</p>
-      <p style="margin:0;font-size:12px;color:#1a56db;word-break:break-all;">{$setupLink}</p>
-    </td>
-  </tr>
+  <!-- Buttons -->
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <table cellpadding="0" cellspacing="0" style="margin:0 auto 12px;">
+      <tr>
+        <td style="background:#1a56db;border-radius:6px;">
+          <a href="{$loginUrl}" style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">Log In to RUMS</a>
+        </td>
+      </tr>
+    </table>
+    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="border:1px solid #d0d5dd;border-radius:6px;">
+          <a href="{$setupLink}" style="display:inline-block;padding:12px 32px;color:#374151;font-size:14px;font-weight:600;text-decoration:none;">Set Up Password</a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:12px 0 0;font-size:12px;color:#aaaaaa;">Setup link expires in 72 hours.</p>
+  </td></tr>
 
   <!-- Footer -->
-  <tr>
-    <td style="padding:32px 48px;margin-top:32px;">
-      <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;padding-top:20px;font-size:12px;color:#aaaaaa;line-height:1.6;">
-        If you were not expecting this, you can safely ignore it.
-        &nbsp;&middot;&nbsp; &copy; {$year} RUMS
-      </td></tr></table>
-    </td>
-  </tr>
+  <tr><td style="padding:32px 48px;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #eeeeee;padding-top:20px;font-size:12px;color:#bbbbbb;text-align:center;line-height:1.6;">
+      If you were not expecting this email, you can ignore it.
+      &nbsp;&middot;&nbsp; &copy; {$year} RUMS
+    </td></tr></table>
+  </td></tr>
 
 </table>
 </td></tr>
@@ -116,46 +105,39 @@ function buildPasswordResetEmail(string $name, string $resetLink): string
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Password Reset — RUMS</title>
 </head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:48px 16px;">
+<body style="margin:0;padding:0;background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7;padding:48px 16px;">
 <tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:6px;border:1px solid #e4e4e4;">
+<table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:8px;border:1px solid #e2e2e2;">
 
-  <tr><td style="padding:36px 48px 0;">
-    <span style="font-size:18px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
+  <tr><td style="padding:40px 48px 0;text-align:center;">
+    <span style="font-size:20px;font-weight:800;color:#1a56db;letter-spacing:-0.5px;">RUMS</span>
   </td></tr>
 
-  <tr><td style="padding:20px 48px 0;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;"></td></tr></table></td></tr>
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111111;">Reset your password</p>
+    <p style="margin:0;font-size:14px;line-height:1.7;color:#666666;">
+      Hi {$name}, click the button below to choose a new password.<br>
+      This link expires in <strong>1 hour</strong>.
+    </p>
+  </td></tr>
 
-  <tr>
-    <td style="padding:32px 48px 0;">
-      <p style="margin:0 0 20px;font-size:15px;color:#111111;">Hi <strong>{$name}</strong>,</p>
-      <p style="margin:0 0 24px;font-size:14px;line-height:1.7;color:#555555;">
-        We received a request to reset your RUMS password. Click the button below —
-        this link expires in <strong>1 hour</strong>.
-      </p>
+  <tr><td style="padding:28px 48px 0;text-align:center;">
+    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="background:#1a56db;border-radius:6px;">
+          <a href="{$resetLink}" style="display:inline-block;padding:13px 36px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">Reset My Password</a>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
 
-      <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-        <tr>
-          <td style="background:#1a56db;border-radius:5px;">
-            <a href="{$resetLink}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;">Reset My Password</a>
-          </td>
-        </tr>
-      </table>
-
-      <p style="margin:0 0 4px;font-size:12px;color:#aaaaaa;">Or copy this link:</p>
-      <p style="margin:0;font-size:12px;color:#1a56db;word-break:break-all;">{$resetLink}</p>
-    </td>
-  </tr>
-
-  <tr>
-    <td style="padding:32px 48px;">
-      <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e8e8e8;padding-top:20px;font-size:12px;color:#aaaaaa;line-height:1.6;">
-        If you didn't request this, ignore it — your account has not been changed.
-        &nbsp;&middot;&nbsp; &copy; {$year} RUMS
-      </td></tr></table>
-    </td>
-  </tr>
+  <tr><td style="padding:32px 48px;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #eeeeee;padding-top:20px;font-size:12px;color:#bbbbbb;text-align:center;line-height:1.6;">
+      If you didn't request this, your account is safe — ignore this email.
+      &nbsp;&middot;&nbsp; &copy; {$year} RUMS
+    </td></tr></table>
+  </td></tr>
 
 </table>
 </td></tr>
