@@ -128,9 +128,11 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
         foreach ($rows as &$r) {
             $prev = $r['prev_reading'] !== null ? (float)$r['prev_reading'] : null;
             $curr = (float)$r['reading_value'];
+            $r['reading_value'] = $curr;
+            $r['water_rate']   = (float)$r['water_rate'];
             $r['prev_reading'] = $prev;
             $r['consumption']  = ($prev !== null && !$r['is_initial']) ? max(0, $curr - $prev) : 0;
-            $r['amount']       = round($r['consumption'] * (float)$r['water_rate'], 2);
+            $r['amount']       = round($r['consumption'] * $r['water_rate'], 2);
             $r['is_current']   = (bool)$r['is_current'];
             $r['is_initial']   = (bool)$r['is_initial'];
             $r['invoiced']     = (bool)$r['invoiced'];
