@@ -166,6 +166,10 @@ function registerWaterReadingRoutes(Router $router, PDO $db): void
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $readingDate)) {
             ApiResponse::unprocessable('reading_date must be YYYY-MM-DD.');
         }
+        $daysDiff = (int)((strtotime(date('Y-m-d')) - strtotime($readingDate)) / 86400);
+        if ($daysDiff > 45) {
+            ApiResponse::unprocessable('Reading date cannot be more than 45 days (1.5 months) in the past.');
+        }
 
         // Landlord scope: ensure unit belongs to their portfolio
         $landlordId = ApiAuth::landlordId($db);
