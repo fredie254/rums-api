@@ -256,29 +256,70 @@ function registerUserRoutes(Router $router, PDO $db): void
             ApiResponse::serverError('Failed to create user.', $e);
         }
 
-        // Generate account setup token and send welcome email
+        // ── Generate setup token ──────────────────────────────────
+        $emailSent  = false;
+        $emailError = null;
+
         try {
             $setupToken  = bin2hex(random_bytes(32));
             $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
             $db->prepare(
                 "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?"
             )->execute([$setupToken, $tokenExpiry, $userId]);
-
-            $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
-            $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
-
-            require_once __DIR__ . '/../services/NotificationService.php';
-            $notif = new NotificationService($db);
-            $notif->sendEmail(
-                $body['email'],
-                'Welcome to RUMS — Set Up Your Password',
-                buildWelcomeEmail($body['name'], $body['role'], $body['email'], $setupLink)
-            );
-        } catch (Throwable $ignored) {
-            // Email failure must not block account creation
+        } catch (Throwable $e) {
+            // Column may not exist yet — log but continue
+            error_log('[RUMS] Failed to save setup token for user ' . $userId . ': ' . $e->getMessage());
+            $setupToken = null;
         }
 
-        ApiResponse::created($responseData, 'User created.');
+        // ── Send welcome email ────────────────────────────────────
+        if ($setupToken) {
+            try {
+                require_once __DIR__ . '/../services/MailService.php';
+
+                $smtpKeys = ['smtp_host','smtp_port','smtp_user','smtp_pass','smtp_encryption','mail_from_name','mail_from_email'];
+                $in       = implode(',', array_fill(0, count($smtpKeys), '?'));
+                $rows     = $db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ($in)");
+                $rows->execute($smtpKeys);
+                $cfg = array_column($rows->fetchAll(), 'setting_value', 'setting_key');
+
+                $mailer = new MailService([
+                    'smtp_host'       => $cfg['smtp_host']        ?? '',
+                    'smtp_port'       => (int)($cfg['smtp_port']  ?? 587),
+                    'smtp_user'       => $cfg['smtp_user']        ?? '',
+                    'smtp_pass'       => $cfg['smtp_pass']        ?? '',
+                    'smtp_encryption' => $cfg['smtp_encryption']  ?? 'tls',
+                    'from_name'       => $cfg['mail_from_name']   ?? 'RUMS',
+                    'from_email'      => $cfg['mail_from_email']  ?? ($cfg['smtp_user'] ?? ''),
+                ]);
+
+                $frontendUrl = rtrim(env('FRONTEND_URL', env('APP_URL', '')), '/');
+                $setupLink   = $frontendUrl . '/setup-password?token=' . $setupToken;
+
+                $result = $mailer->send(
+                    $body['email'],
+                    'Welcome to RUMS — Set Up Your Password',
+                    buildWelcomeEmail($body['name'], $body['role'], $body['email'], $setupLink)
+                );
+
+                $emailSent  = $result['success'];
+                $emailError = $result['success'] ? null : ($result['error'] ?? 'Unknown mail error');
+
+                if (!$emailSent) {
+                    error_log('[RUMS] Welcome email failed for user ' . $userId . ': ' . $emailError);
+                }
+            } catch (Throwable $e) {
+                $emailError = $e->getMessage();
+                error_log('[RUMS] Welcome email exception for user ' . $userId . ': ' . $emailError);
+            }
+        }
+
+        $responseData['email_sent']  = $emailSent;
+        $responseData['email_error'] = $emailError;
+
+        ApiResponse::created($responseData, $emailSent
+            ? 'User created. Welcome email sent.'
+            : 'User created. Welcome email could not be sent' . ($emailError ? ': ' . $emailError : '.'));
     });
 
     $router->get('users/{id}', function (string $id) use ($db) {
