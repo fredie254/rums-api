@@ -9,7 +9,6 @@ class PropertyService extends BaseService
         $params = [];
 
         if (!empty($filters['search'])) {
-            // p.address does not exist — search against address_line1 and address_line2
             $where[] = '(p.name LIKE ? OR p.address_line1 LIKE ? OR p.address_line2 LIKE ?)';
             $s = '%' . $filters['search'] . '%';
             $params[] = $s; $params[] = $s; $params[] = $s;
@@ -29,7 +28,6 @@ class PropertyService extends BaseService
 
         $w = 'WHERE ' . implode(' AND ', $where);
 
-        // Explicit column list avoids duplicate `total_units` alias collision with p.*
         $sql = "SELECT
             p.id, p.name, p.property_type, p.address_line1, p.address_line2,
             p.address_city, p.address_county, p.address_country, p.year_built,
@@ -54,6 +52,7 @@ class PropertyService extends BaseService
 
     public function find(int $id): ?array
     {
+        // Single query: property + landlord name/email
         $prop = $this->fetchOne(
             "SELECT p.*, u.name AS landlord_name, u.email AS landlord_email
              FROM properties p
@@ -64,11 +63,32 @@ class PropertyService extends BaseService
         );
         if (!$prop) return null;
 
+        // One query: units list + aggregate stats side-by-side via a subquery
+        // Units list
         $prop['units'] = $this->fetchAll(
             "SELECT * FROM units WHERE property_id = ? ORDER BY unit_number",
             [$id]
         );
-        $prop['stats'] = $this->stats($id);
+
+        // Stats: combine unit aggregates + year income in a single query
+        $prop['stats'] = $this->fetchOne(
+            "SELECT
+                COUNT(*)                                    AS total_units,
+                COALESCE(SUM(status='occupied'),   0)       AS occupied,
+                COALESCE(SUM(status='available'),  0)       AS available,
+                COALESCE(SUM(status='maintenance'),0)       AS maintenance,
+                COALESCE(SUM(rent_amount),         0)       AS potential_monthly_revenue,
+                COALESCE((
+                    SELECT SUM(pay.amount)
+                    FROM payments pay
+                    JOIN leases le ON le.id = pay.lease_id
+                    WHERE le.unit_id IN (SELECT id FROM units WHERE property_id = ?)
+                      AND YEAR(pay.payment_date) = YEAR(NOW())
+                ), 0) AS year_income
+             FROM units WHERE property_id = ?",
+            [$id, $id]
+        ) ?? ['total_units' => 0, 'occupied' => 0, 'available' => 0, 'maintenance' => 0, 'potential_monthly_revenue' => 0, 'year_income' => 0];
+
         return $prop;
     }
 
@@ -76,25 +96,23 @@ class PropertyService extends BaseService
     {
         $row = $this->fetchOne(
             "SELECT
-                COUNT(*)                            AS total_units,
-                SUM(status='occupied')              AS occupied,
-                SUM(status='available')             AS available,
-                SUM(status='maintenance')           AS maintenance,
-                COALESCE(SUM(rent_amount), 0)       AS potential_monthly_revenue
+                COUNT(*)                                    AS total_units,
+                COALESCE(SUM(status='occupied'),   0)       AS occupied,
+                COALESCE(SUM(status='available'),  0)       AS available,
+                COALESCE(SUM(status='maintenance'),0)       AS maintenance,
+                COALESCE(SUM(rent_amount),         0)       AS potential_monthly_revenue,
+                COALESCE((
+                    SELECT SUM(pay.amount)
+                    FROM payments pay
+                    JOIN leases le ON le.id = pay.lease_id
+                    WHERE le.unit_id IN (SELECT id FROM units WHERE property_id = ?)
+                      AND YEAR(pay.payment_date) = YEAR(NOW())
+                ), 0) AS year_income
              FROM units WHERE property_id = ?",
-            [$propertyId]
+            [$propertyId, $propertyId]
         );
 
-        $income = $this->fetchColumn(
-            "SELECT COALESCE(SUM(p.amount), 0)
-             FROM payments p
-             JOIN leases l ON l.id = p.lease_id
-             JOIN units u  ON u.id = l.unit_id
-             WHERE u.property_id = ? AND YEAR(p.payment_date) = YEAR(NOW())",
-            [$propertyId]
-        );
-
-        return array_merge($row ?? [], ['year_income' => (float)$income]);
+        return $row ?? ['total_units' => 0, 'occupied' => 0, 'available' => 0, 'maintenance' => 0, 'potential_monthly_revenue' => 0, 'year_income' => 0];
     }
 
     public function create(array $data): array
@@ -109,7 +127,6 @@ class PropertyService extends BaseService
             'address_county', 'address_country', 'total_units', 'year_built',
             'landlord_id', 'manager_id', 'description', 'amenities', 'status', 'image',
         ]);
-        // Strip null values so they are omitted from INSERT (rely on DB defaults)
         $allowed = array_filter($allowed, fn($v) => $v !== null && $v !== '');
         $allowed['status'] = $allowed['status'] ?? 'active';
 
@@ -127,10 +144,6 @@ class PropertyService extends BaseService
 
     public function update(int $id, array $data): array
     {
-        if (!$this->find($id)) {
-            return ['success' => false, 'message' => 'Property not found.'];
-        }
-
         $allowed = $this->only($data, [
             'name', 'property_type', 'address_line1', 'address_line2', 'address_city',
             'address_county', 'address_country', 'total_units', 'year_built',
@@ -141,21 +154,28 @@ class PropertyService extends BaseService
         }
 
         [$set, $vals] = $this->buildSet($allowed);
-        $this->execute("UPDATE properties SET $set WHERE id = ?", [...$vals, $id]);
+        $affected = $this->execute("UPDATE properties SET $set WHERE id = ? AND status != 'deleted'", [...$vals, $id]);
+        if ($affected === 0) {
+            return ['success' => false, 'message' => 'Property not found.'];
+        }
         return ['success' => true, 'message' => 'Property updated.'];
     }
 
     public function delete(int $id): array
     {
-        $prop = $this->find($id);
-        if (!$prop) return ['success' => false, 'message' => 'Property not found.'];
-
-        $occupied = (int)($prop['stats']['occupied'] ?? 0);
+        // Check occupancy without loading the full property object
+        $occupied = (int)$this->fetchColumn(
+            "SELECT COUNT(*) FROM units WHERE property_id = ? AND status = 'occupied'",
+            [$id]
+        );
         if ($occupied > 0) {
             return ['success' => false, 'message' => "Cannot delete — $occupied unit(s) still occupied."];
         }
 
-        $this->execute("UPDATE properties SET status = 'deleted' WHERE id = ?", [$id]);
+        $affected = $this->execute("UPDATE properties SET status = 'deleted' WHERE id = ? AND status != 'deleted'", [$id]);
+        if ($affected === 0) {
+            return ['success' => false, 'message' => 'Property not found.'];
+        }
         return ['success' => true, 'message' => 'Property deleted.'];
     }
 }
