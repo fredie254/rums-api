@@ -188,12 +188,14 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
     // ── Create single ─────────────────────────────────────────
     $router->post('invoices', function () use ($db) {
         ApiAuth::requireScope($db, 'write:invoices');
-        $body    = Router::body();
-        $missing = array_filter(
-            ['lease_id', 'invoice_date', 'due_date', 'total_amount'],
-            fn($f) => empty($body[$f])
-        );
-        if ($missing) ApiResponse::unprocessable('Missing: ' . implode(', ', $missing));
+        $body = Router::body();
+
+        // Normalise month/year aliases sent by the utility billing frontend
+        if (!isset($body['period_month']) && isset($body['month'])) $body['period_month'] = $body['month'];
+        if (!isset($body['period_year'])  && isset($body['year']))  $body['period_year']  = $body['year'];
+
+        // lease_id is required for all invoices
+        if (empty($body['lease_id'])) ApiResponse::unprocessable('Missing: lease_id');
 
         $lid = ApiAuth::landlordId($db);
         if ($lid) {
@@ -211,11 +213,46 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $lease = $l->fetch();
         if (!$lease) ApiResponse::badRequest('Lease not found.');
 
-        $allowed = array_intersect_key($body, array_flip([
-            'lease_id', 'invoice_date', 'due_date', 'total_amount',
-            'rent_amount', 'utility_amount', 'penalty_amount', 'discount_amount',
-            'period_month', 'period_year', 'notes',
-        ]));
+        // Compute total_amount from items array if not explicitly provided
+        $items       = isset($body['items']) && is_array($body['items']) ? $body['items'] : [];
+        $itemsTotal  = 0.0;
+        foreach ($items as $item) {
+            $itemsTotal += (float)($item['unit_price'] ?? 0) * (float)($item['quantity'] ?? 1);
+        }
+
+        $totalAmount = isset($body['total_amount']) && $body['total_amount'] !== ''
+            ? (float)$body['total_amount']
+            : $itemsTotal;
+
+        if ($totalAmount <= 0 && empty($items)) {
+            ApiResponse::unprocessable('Provide total_amount or at least one item.');
+        }
+
+        // Auto-generate dates if absent
+        $invoiceDate = $body['invoice_date'] ?? date('Y-m-d');
+        $dueDate     = $body['due_date']     ?? date('Y-m-d', strtotime('+30 days'));
+
+        $allowed = [
+            'lease_id'       => (int)$body['lease_id'],
+            'invoice_type'   => in_array($body['invoice_type'] ?? '', ['rent','utility','mixed'])
+                                    ? $body['invoice_type'] : 'rent',
+            'unit_id'        => isset($body['unit_id']) ? (int)$body['unit_id'] : null,
+            'invoice_date'   => $invoiceDate,
+            'due_date'       => $dueDate,
+            'total_amount'   => $totalAmount,
+            'rent_amount'    => isset($body['rent_amount'])    ? (float)$body['rent_amount']    : 0,
+            'utility_amount' => isset($body['utility_amount']) ? (float)$body['utility_amount'] : ($body['invoice_type'] === 'utility' ? $totalAmount : 0),
+            'penalty_amount' => isset($body['penalty_amount']) ? (float)$body['penalty_amount'] : 0,
+            'discount_amount'=> isset($body['discount_amount'])? (float)$body['discount_amount']: 0,
+            'period_month'   => isset($body['period_month'])   ? (int)$body['period_month']     : null,
+            'period_year'    => isset($body['period_year'])    ? (int)$body['period_year']      : null,
+            'notes'          => $body['notes'] ?? null,
+            'meter_reading_prev' => isset($body['meter_reading_prev']) ? (float)$body['meter_reading_prev'] : null,
+            'meter_reading_curr' => isset($body['meter_reading_curr']) ? (float)$body['meter_reading_curr'] : null,
+        ];
+        // Remove nulls for cleaner INSERT
+        $allowed = array_filter($allowed, fn($v) => $v !== null);
+
         // Placeholder satisfies NOT NULL + UNIQUE; real number written after insert.
         $allowed['invoice_number'] = 'PENDING-' . bin2hex(random_bytes(8));
         $allowed['tenant_id']      = $lease['tenant_id'];
@@ -227,8 +264,24 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
         $db->prepare("INSERT INTO invoices ($cols) VALUES ($places)")->execute(array_values($allowed));
         $newId  = (int)$db->lastInsertId();
         $invNum = sprintf('INV-%04d-%06d', (int)date('Y'), $newId);
-        $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")
-           ->execute([$invNum, $newId]);
+        $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")->execute([$invNum, $newId]);
+
+        // Insert line items if provided
+        if (!empty($items)) {
+            $itemStmt = $db->prepare(
+                "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, item_type)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            foreach ($items as $item) {
+                $itemStmt->execute([
+                    $newId,
+                    $item['description'] ?? '',
+                    (float)($item['quantity']   ?? 1),
+                    (float)($item['unit_price'] ?? 0),
+                    $item['item_type'] ?? null,
+                ]);
+            }
+        }
 
         ApiResponse::created(['id' => $newId, 'invoice_number' => $invNum], 'Invoice created.');
     });

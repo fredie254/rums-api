@@ -101,6 +101,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
             'property_id','unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
+            'water_rate','garbage_fee','service_fee',
             'amenities','description','status',
         ]));
         $allowed['status'] = $allowed['status'] ?? 'available';
@@ -165,6 +166,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
             'unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
+            'water_rate','garbage_fee','service_fee',
             'amenities','description','status',
         ]));
         if (!$allowed) ApiResponse::badRequest('No valid fields to update.');
@@ -185,6 +187,7 @@ function registerUnitRoutes(Router $router, PDO $db): void
             'unit_number','unit_type','floor','block_number','bedrooms','bathrooms',
             'size_sqft','rent_amount','deposit_amount','furnished',
             'water_included','electricity_included','utility_charge',
+            'water_rate','garbage_fee','service_fee',
             'amenities','description','status',
         ]));
         if (!$allowed) ApiResponse::badRequest('No valid fields to update.');
