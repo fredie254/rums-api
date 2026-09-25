@@ -342,6 +342,77 @@ function registerInvoiceRoutes(Router $router, PDO $db): void
             }
         }
 
+        // ── Apply any pre-payments (orphan M-Pesa payments with no invoice) ──
+        $orphanRow = $db->prepare(
+            "SELECT COALESCE(SUM(amount), 0) AS total_paid
+             FROM payments
+             WHERE lease_id = ? AND invoice_id IS NULL AND status = 'completed'"
+        );
+        $orphanRow->execute([(int)$body['lease_id']]);
+        $totalPrePaid = (float)$orphanRow->fetchColumn();
+
+        if ($totalPrePaid > 0) {
+            // Link all orphan payments to this new invoice
+            $db->prepare(
+                "UPDATE payments SET invoice_id = ?
+                 WHERE lease_id = ? AND invoice_id IS NULL AND status = 'completed'"
+            )->execute([$newId, (int)$body['lease_id']]);
+
+            // Recalculate status
+            $invStatus = match (true) {
+                $totalPrePaid >= $totalAmount => 'paid',
+                default                       => 'partial',
+            };
+            $db->prepare("UPDATE invoices SET amount_paid = ?, status = ? WHERE id = ?")
+               ->execute([$totalPrePaid, $invStatus, $newId]);
+
+            // Fetch tenant details for notification
+            $tenantRow = $db->prepare(
+                "SELECT t.user_id, t.first_name, t.last_name, u.unit_number
+                 FROM leases l
+                 JOIN tenants t ON t.id = l.tenant_id
+                 JOIN units u ON u.id = l.unit_id
+                 WHERE l.id = ? LIMIT 1"
+            );
+            $tenantRow->execute([(int)$body['lease_id']]);
+            $tenant = $tenantRow->fetch();
+
+            if ($tenant && $tenant['user_id']) {
+                $name    = trim($tenant['first_name'] . ' ' . $tenant['last_name']);
+                $balance = round($totalAmount - $totalPrePaid, 2);
+                $excess  = round($totalPrePaid - $totalAmount, 2);
+
+                if ($invStatus === 'paid') {
+                    $notifMsg = sprintf(
+                        "Dear %s, your new invoice (%s) for Unit %s of KES %s has been automatically settled by your prior payment. %sThank you!",
+                        $name, $invNum, $tenant['unit_number'],
+                        number_format($totalAmount, 2),
+                        $excess > 0
+                            ? sprintf("Excess credit of KES %s will be applied to your next bill. ", number_format($excess, 2))
+                            : ''
+                    );
+                } else {
+                    $notifMsg = sprintf(
+                        "Dear %s, a new invoice (%s) of KES %s has been raised for Unit %s. Your prior payment of KES %s has been applied. Balance due: KES %s.",
+                        $name, $invNum,
+                        number_format($totalAmount, 2),
+                        $tenant['unit_number'],
+                        number_format($totalPrePaid, 2),
+                        number_format($balance, 2)
+                    );
+                }
+
+                try {
+                    $db->prepare(
+                        "INSERT INTO notifications (user_id, title, message, type, created_at)
+                         VALUES (?, ?, ?, 'payment', NOW())"
+                    )->execute([$tenant['user_id'], 'Invoice Auto-Settled', $notifMsg]);
+                } catch (Throwable $e) {
+                    error_log('[Invoice Notification Error] ' . $e->getMessage());
+                }
+            }
+        }
+
         ApiResponse::created(['id' => $newId, 'invoice_number' => $invNum], 'Invoice created.');
     });
 
