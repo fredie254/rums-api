@@ -65,8 +65,15 @@ function registerUnitRoutes(Router $router, PDO $db): void
         $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
         $stmt->bindValue(count($params) + 2, $offset,  PDO::PARAM_INT);
         $stmt->execute();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            if (!empty($row['tenant_phone'])) {
+                $row['tenant_phone'] = Encryptor::decrypt($row['tenant_phone']);
+            }
+        }
+        unset($row);
 
-        ApiResponse::ok($stmt->fetchAll(), '', [
+        ApiResponse::ok($rows, '', [
             'total'        => $total,
             'per_page'     => $perPage,
             'current_page' => $page,
@@ -137,6 +144,13 @@ function registerUnitRoutes(Router $router, PDO $db): void
         $stmt->execute([(int)$id]);
         $unit = $stmt->fetch();
         if (!$unit) ApiResponse::notFound('Unit not found.');
+
+        if (!empty($unit['tenant_phone'])) {
+            $unit['tenant_phone'] = Encryptor::decrypt($unit['tenant_phone']);
+        }
+        if (!empty($unit['tenant_email'])) {
+            $unit['tenant_email'] = Encryptor::decrypt($unit['tenant_email']);
+        }
 
         if ($unit['lease_id']) {
             $ps = $db->prepare(

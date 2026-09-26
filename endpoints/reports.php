@@ -292,7 +292,7 @@ function registerReportRoutes(Router $router, PDO $db): void
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
 
-        // Cast numeric strings
+        // Cast numeric strings and decrypt PII
         foreach ($rows as &$r) {
             $r['rent_amount']        = (float)$r['rent_amount'];
             $r['total_invoiced']     = (float)$r['total_invoiced'];
@@ -300,6 +300,9 @@ function registerReportRoutes(Router $router, PDO $db): void
             $r['outstanding_balance']= (float)$r['outstanding_balance'];
             $r['open_invoices']      = (int)$r['open_invoices'];
             $r['overdue_invoices']   = (int)$r['overdue_invoices'];
+            if (!empty($r['tenant_phone'])) {
+                $r['tenant_phone'] = Encryptor::decrypt($r['tenant_phone']);
+            }
         }
         unset($r);
 
