@@ -34,13 +34,12 @@ class TenantService extends BaseService
 
     public function list(array $filters = [], int $page = 1, int $perPage = 20): array
     {
-        // Use users as the base so every user whose role='tenant' appears,
-        // even if they have no tenants profile row yet.
-        $where  = ["u.role = 'tenant'"];
+        // Base from tenants so every tenant record appears regardless of whether
+        // a user account exists (non-tech-savvy tenants may never log in).
+        $where  = ['1=1'];
         $params = [];
 
         if (!empty($filters['search'])) {
-            // Search on the fallback-aware full name / email; phone is encrypted and not searchable.
             $where[] = "(COALESCE(CONCAT(t.first_name,' ',t.last_name), u.name) LIKE ? OR COALESCE(t.email, u.email) LIKE ?)";
             $s = '%' . $filters['search'] . '%';
             $params[] = $s;
@@ -51,11 +50,23 @@ class TenantService extends BaseService
             $params[] = $filters['status'];
         }
         if (!empty($filters['property_id'])) {
-            $where[] = 'un.property_id = ?';
+            // Filter by a specific property via any lease (active or otherwise)
+            $where[] = "EXISTS (
+                SELECT 1 FROM leases lf
+                JOIN units uf ON uf.id = lf.unit_id
+                WHERE lf.tenant_id = t.id AND uf.property_id = ?
+            )";
             $params[] = (int)$filters['property_id'];
         }
         if (!empty($filters['landlord_id'])) {
-            $where[] = 'pr.landlord_id = ?';
+            // Use EXISTS so tenants without an active lease are still visible
+            // to the landlord (they appear with no unit info in the list).
+            $where[] = "EXISTS (
+                SELECT 1 FROM leases lf
+                JOIN units uf ON uf.id = lf.unit_id
+                JOIN properties pf ON pf.id = uf.property_id
+                WHERE lf.tenant_id = t.id AND pf.landlord_id = ?
+            )";
             $params[] = (int)$filters['landlord_id'];
         }
 
@@ -76,16 +87,16 @@ class TenantService extends BaseService
             COALESCE(t.status, u.status) AS status,
             l.id AS lease_id, l.status AS lease_status,
             un.unit_number, pr.name AS property_name
-            FROM users u
-            LEFT JOIN tenants t  ON t.user_id = u.id
+            FROM tenants t
+            LEFT JOIN users u    ON u.id = t.user_id
             LEFT JOIN leases l   ON l.tenant_id = t.id AND l.status = 'active'
             LEFT JOIN units un   ON un.id = l.unit_id
             LEFT JOIN properties pr ON pr.id = un.property_id
-            $w ORDER BY COALESCE(t.first_name, u.name), t.last_name";
+            $w ORDER BY t.first_name, t.last_name";
 
-        $countSql = "SELECT COUNT(DISTINCT u.id)
-            FROM users u
-            LEFT JOIN tenants t  ON t.user_id = u.id
+        $countSql = "SELECT COUNT(DISTINCT t.id)
+            FROM tenants t
+            LEFT JOIN users u    ON u.id = t.user_id
             LEFT JOIN leases l   ON l.tenant_id = t.id AND l.status = 'active'
             LEFT JOIN units un   ON un.id = l.unit_id
             LEFT JOIN properties pr ON pr.id = un.property_id
