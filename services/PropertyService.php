@@ -36,7 +36,7 @@ class PropertyService extends BaseService
             u.name AS landlord_name,
             COUNT(DISTINCT un.id)                                          AS total_units,
             COUNT(DISTINCT CASE WHEN un.status='occupied'  THEN un.id END) AS occupied_units,
-            COUNT(DISTINCT CASE WHEN un.status='available' THEN un.id END) AS available_units
+            COUNT(DISTINCT CASE WHEN un.status='available' THEN un.id END) AS vacant_units
             FROM properties p
             LEFT JOIN landlords l ON l.id = p.landlord_id
             LEFT JOIN users u     ON u.id = l.user_id
